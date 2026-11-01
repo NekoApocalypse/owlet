@@ -11,13 +11,13 @@ Developers rarely write code by hand anymore. Agents write the code, while human
 
 **Owlet** is a fast project editor built for **90% reading, 10% writing**. In daily use, it feels 10x faster than VS Code.
 
-![Owlet 左右同屏展示源码与富文本 Markdown 预览](docs/images/workspace.png)
+![Owlet 工作区](docs/images/workspace.png)
 
 - **10 秒内冷启动项目**：限速 SSH 下实测 **4.55 秒** 打开完整项目窗口（[测试条件](docs/performance.md)），集成终端里直接 `owlet .` 秒切目录（体验同 `code .`）。
 - **SSH 远程不占带宽**：不在远端装常驻重型 Server，直接复用现有 SSH，树莓派或限速跳板机都不卡。
-- **优秀的 Markdown 预览**：原生渲染公式、Mermaid 图、图片与代码高亮，左源码右预览同屏对照看 Agent 写的 Plan 和 Spec。
+- **优秀的 Markdown 预览**：原生渲染公式、Mermaid 图、图片与代码高亮，配合分屏（split pane）阅读 Agent 写的 Plan 和 Spec。
 - **Peacock 项目主题色**：多开几个 Agent 窗口一眼靠颜色认出项目，支持直接导入 VS Code 现有配色。
-- **熟悉的 VS Code 布局**：文件树、标签页、自由分屏、可移动终端、Vim 模式与命令面板齐备，文件与终端可任意并排对照。
+- **熟悉的 VS Code 工作区**：文件树、标签页、分屏（split pane）、可移动终端、Vim 模式与命令面板齐备，文件与终端可在分屏间自由组合。
 
 ## 快速开始
 
@@ -31,7 +31,7 @@ Developers rarely write code by hand anymore. Agents write the code, while human
    npm run package
    ```
 
-   打开 `release/Owlet/Owlet.exe`。选择 **Open Local Folder**，或点击左下角蓝色远程图标连接 SSH；两者也可通过命令面板（`Ctrl+Shift+P`）调用。
+   打开 `release/Owlet/Owlet.exe`。通过欢迎页、状态栏或命令面板（`Ctrl+Shift+P`）选择 **Open Local Folder** 或 **Connect to Remote (SSH)**。
 
 ## 当前局限
 

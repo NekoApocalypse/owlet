@@ -11,13 +11,13 @@ Developers rarely write code by hand anymore. Agents write the code, while human
 
 所以我做了一个 **「9 分看、1 分写」** 的极速项目编辑器 **Owlet**，日常交互体感比 VS Code 快 10 倍。
 
-![Owlet showing source and rich Markdown side by side](docs/images/workspace.png)
+![Owlet workspace](docs/images/workspace.png)
 
 - **Cold-start a project in under 10 seconds.** Opens a full project window in **4.55 seconds** over a bandwidth-limited SSH connection ([test conditions](docs/performance.md)). Run `owlet .` in the integrated terminal to switch directories and open another project window instantly, just like `code .`.
 - **Zero-bloat SSH remote.** No persistent heavy server installed on the remote host. Owlet reuses your existing SSH setup, staying responsive even on a Raspberry Pi or a bandwidth-limited jump host.
-- **Rich Markdown preview.** Native rendering for math equations, Mermaid diagrams, images, and syntax-highlighted code. View source on the left and preview on the right to inspect agent-written plans and specs side by side.
+- **Rich Markdown preview.** Native rendering for math equations, Mermaid diagrams, images, and syntax-highlighted code, with split panes for reading agent-written plans and specs.
 - **Peacock project colors.** Spot the right project at a glance across multiple agent windows, or import your existing VS Code Peacock color directly.
-- **Familiar VS Code layout.** File explorer, tabs, resizable splits, movable terminals, Vim mode, and a command palette. Arrange files and terminals side by side.
+- **Familiar VS Code workspace.** File explorer, tabs, split panes, movable terminals, Vim mode, and a command palette. Open files and terminals across split panes.
 
 ## Getting started
 
@@ -31,7 +31,7 @@ Developers rarely write code by hand anymore. Agents write the code, while human
    npm run package
    ```
 
-   Open `release/Owlet/Owlet.exe`. Choose **Open Local Folder**, or click the blue remote icon at the bottom left. Both commands are also available in the command palette (`Ctrl+Shift+P`).
+   Open `release/Owlet/Owlet.exe`. Choose **Open Local Folder** or **Connect to Remote (SSH)** from the welcome screen, status bar, or command palette (`Ctrl+Shift+P`).
 
 ## Limitations
 
