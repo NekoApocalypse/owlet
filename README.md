@@ -42,3 +42,5 @@ Today’s build runs on Windows x64; SSH hosts need Linux, Bash, Python 3, and w
 **Current limits:** UTF-8 text up to 4 MiB; raster images up to 16 MiB. Owlet bundles Electron, so lightweight workflow does not mean a tiny download or memory footprint.
 
 [Usage and configuration](docs/usage.md) · [Architecture and development](docs/development.md) · [Performance](docs/performance.md)
+
+[MIT License](LICENSE) · [GitHub](https://github.com/NekoApocalypse/owlet)

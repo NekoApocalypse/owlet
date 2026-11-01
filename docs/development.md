@@ -71,14 +71,14 @@ Set `LWR_PACKAGED` to the packaged executable to test the portable app.
 The performance test defaults to five runs per profile; `LWR_PERF_RUNS` overrides that count. Launch time ends at a usable
 directory listing, not when the window frame first appears.
 
-## Prepare publication
+## Source archives
 
 `npm run source:export` makes a clean source archive from an explicit file list. It excludes profiles, binaries, internal
 Trust Contracts, skill copies, and historical evidence containing private host details. It does not rewrite this
 working repository's history or publish anything.
 
-Choose the GitHub destination and project license before publication. Dependency licenses remain applicable.
-Do not present this as an open-source release until a project license has been chosen.
+Owlet is published at [NekoApocalypse/owlet](https://github.com/NekoApocalypse/owlet) under the [MIT License](../LICENSE).
+Dependency licenses remain applicable. The portable package preserves Electron's license as `LICENSE.electron`.
 
 ## Entry points
 

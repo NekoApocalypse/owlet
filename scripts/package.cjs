@@ -63,6 +63,7 @@ const { execFileSync } = require("node:child_process");
         name: "owlet",
         productName: "Owlet",
         version: "0.1.0",
+        license: require("../package.json").license,
         main: "electron/main.cjs",
       },
       null,
@@ -73,6 +74,12 @@ const { execFileSync } = require("node:child_process");
     path.join(root, "README.md"),
     path.join(destination, "README.md"),
   );
+  if (fs.existsSync(path.join(root, "LICENSE"))) {
+    // Keep the runtime's own license when adding the project's license.
+    fs.copyFileSync(path.join(destination, "LICENSE"), path.join(destination, "LICENSE.electron"));
+    fs.copyFileSync(path.join(root, "LICENSE"), path.join(destination, "LICENSE"));
+    fs.copyFileSync(path.join(root, "LICENSE"), path.join(appDir, "LICENSE"));
+  }
   // Keep the portable README's images, examples and public documentation usable.
   for (const relative of [
     "assets/icon.png",
