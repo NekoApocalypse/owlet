@@ -1,3 +1,9 @@
+export type RecentWorkspace = {
+  id: string;
+  kind: "local" | "ssh";
+  path: string;
+  target?: string;
+};
 export type ConnectionState = {
   kind?: "local" | "ssh";
   shell?: string;
@@ -60,6 +66,16 @@ declare global {
       openWindow(root: string): Promise<void>;
       openLocal(root?: string): Promise<boolean>;
       openSSH(target: string, root?: string): Promise<void>;
+      newWindow(): Promise<void>;
+      fileMenu(): Promise<void>;
+      recent(): Promise<RecentWorkspace[]>;
+      openRecent(id: string): Promise<void>;
+      removeRecent(id: string): Promise<RecentWorkspace[]>;
+      clearRecent(): Promise<RecentWorkspace[]>;
+      onRecent(fn: (entries: RecentWorkspace[]) => void): () => void;
+      onCommand(
+        fn: (command: { id: string; args: Record<string, unknown> }) => void,
+      ): () => void;
       onConnection(fn: (state: ConnectionState) => void): () => void;
       startTerminal(args: {
         path: string;

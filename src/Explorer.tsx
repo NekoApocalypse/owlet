@@ -209,7 +209,7 @@ export default function Explorer({
       </div>
       <div className="project-label" title={root}>
         <ChevronDown size={14} />
-        <span>{basename(root) || "Workspace"}</span>
+        <span>{root ? basename(root) : "No folder opened"}</span>
       </div>
       <div
         className="tree"
@@ -219,7 +219,7 @@ export default function Explorer({
         {root ? (
           entries(root, 0)
         ) : (
-          <p className="tree-hint">Connecting to your workspace…</p>
+          <p className="tree-hint">Open a folder from the File menu.</p>
         )}
       </div>
       <label className="hidden-toggle">

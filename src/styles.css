@@ -137,6 +137,37 @@ input {
   background: #ffffff26;
   color: inherit;
 }
+.file-menu-button {
+  font-size: 12px;
+  padding: var(--space-4) var(--space-8);
+}
+.recent-option {
+  height: 44px;
+  min-height: 44px;
+  gap: var(--space-8);
+}
+.recent-option .recent-description {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.recent-description strong,
+.recent-description small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recent-description small,
+.recent-host {
+  color: var(--muted);
+  font-size: 11px;
+}
+.recent-option .recent-host {
+  flex-shrink: 0;
+  max-width: 40%;
+}
 .project-swatch {
   width: 13px;
   height: 13px;

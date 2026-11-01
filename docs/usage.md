@@ -14,6 +14,22 @@ Each window owns its workspace. Windows for the same SSH host share a connection
 shells and preserves editor buffers; other hosts and local windows are unaffected. A remote multiplexer owns persistent
 agent sessions. Local folders need neither SSH nor Python.
 
+## Return to recent work
+
+The top-left **File** menu offers **New Window**, **Open Local Folder**, **Connect to Remote**, and **Open Recent**.
+New Window (`Ctrl+Shift+N`) opens a clean welcome screen. Open Recent lists local folders and SSH folders together,
+with the host shown beside each remote location. Choose **Recently Opened Windows…** to search the full list, or press
+`Ctrl+Alt+R`. Selecting a workspace opens it in a new window.
+
+Owlet remembers up to 50 successfully opened folders across restarts. The menu shows the latest 15; the searchable picker
+shows all 50. History is saved in the laptop's Owlet profile, with no passwords or keys. Different SSH aliases remain
+separate entries. History remembers folder locations, not tabs, unsaved buffers, or terminal sessions.
+
+The palette also offers **Remove from Recently Opened** and **Clear Recently Opened**. These only change history;
+they never delete folders. A moved local folder or an unavailable SSH host reports an error and stays in the list until removed.
+
+## Startup options
+
 Optional startup environment variables:
 
 - `OWLET_SSH_TARGET`: start with this host instead of local mode.

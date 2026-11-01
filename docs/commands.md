@@ -22,6 +22,7 @@ Commands that require a path, number, or text offer a prompt when invoked from t
 | --- | --- |
 | Local folder, remote connection, new window, reload, close, minimize, maximize, fullscreen, application zoom | `workspace.openLocal`, `workspace.openSSH`, `window.*`, `view.zoom.*` |
 | Open remote connection from the blue bottom-left icon or welcome screen | `workspace.openSSH`; searches for **remote**, **Open Remote**, and **SSH** find it |
+| File menu, clean new window, search/open recent local or SSH windows, inspect/remove/clear history | `menu.file`, `window.newEmpty`, `workspace.openRecent`, `.recent`, `.removeRecent`, `.clearRecent`; recent IDs come from `workspace.recent({readOnly: true})` via the command registry |
 | Explorer refresh, visibility, hidden files, expand/collapse a folder, load more entries, resize | `explorer.refresh`, `.toggle`, `.hidden`, `.expand`, `.toggleFolder`, `.collapseFolder`, `.collapse`, `.loadMore`, `.setWidth`, `.widen`, `.narrow` |
 | Open, save, save all, close, revert, copy path, inspect unsaved text, compare changes | `file.open`, `.save`, `.saveAll`, `.close`, `.revert`, `.copyPath`, `.inspect`, `.compare` |
 | Resolve a conflict or keep editing | `conflict.replace`, `.useRemote`, `.keepEditing`; replacement requires the compared revision and explicit confirmation |
@@ -61,3 +62,7 @@ Follow [AGENTS.md](../AGENTS.md). Before adding a control, identify its command 
 reuse the handler, and update this audit. `node tests/commands.cjs` checks behavior through the UI and API, including folder
 pagination, unsaved editing, targeted navigation, confirmations, and remote-entry discovery. Set `OWLET_SSH_TARGET` to exercise
 the connection form against a real host. Existing local, SSH, layout, and appearance tests cover the other command families.
+
+`node tests/recent.cjs` checks File-menu command dispatch, recent-workspace UI, restart persistence, and local/SSH reopening.
+The native File menu sends command IDs back to the renderer registry; it does not implement a second set of UI handlers.
+`workspace.openRecent` and `.removeRecent` accept an `id` from the history list; omitting it opens a searchable picker.

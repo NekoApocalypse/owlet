@@ -32,6 +32,8 @@ import {
 import Explorer, { FileIcon } from "./Explorer";
 import Editor, { editorAction } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
+import RecentWorkspaces from "./RecentWorkspaces";
+import type { RecentWorkspace } from "./types";
 import { useProjectAppearance } from "./projectAppearance";
 import {
   basename,
@@ -195,6 +197,10 @@ function ImageViewer({
 }
 
 export default function App() {
+  const [recent, setRecent] = useState<RecentWorkspace[]>([]);
+  const [recentPicker, setRecentPicker] = useState<"open" | "remove" | null>(
+    null,
+  );
   const [connection, setConnection] = useState<ConnectionState>({
     status: "connecting",
     target: "Local",
@@ -567,6 +573,77 @@ export default function App() {
         run: () => setPaletteVisible(true),
       },
       {
+        id: "menu.file",
+        title: "File: Show File Menu",
+        run: () => window.lwr.fileMenu(),
+      },
+      {
+        id: "window.newEmpty",
+        title: "Window: New Window",
+        shortcut: "Ctrl+Shift+N",
+        run: () => window.lwr.newWindow(),
+      },
+      {
+        id: "workspace.openRecent",
+        title: "Workspace: Open Recent…",
+        keywords: ["Recently Opened Windows", "Recent Folders"],
+        shortcut: "Ctrl+Alt+R",
+        parameters: {
+          id: "Optional ID from workspace.recent; omit to choose a workspace",
+        },
+        run: async (args) => {
+          if (args.id !== undefined) {
+            await window.lwr.openRecent(args.id);
+            setRecentPicker(null);
+          } else {
+            setRecent(await window.lwr.recent());
+            setRecentPicker("open");
+          }
+        },
+      },
+      {
+        id: "workspace.recent",
+        title: "Workspace: Copy Recent Workspace List",
+        parameters: { readOnly: "true returns history without copying" },
+        run: async (args) => {
+          const entries = await window.lwr.recent();
+          if (!args.readOnly)
+            await navigator.clipboard.writeText(
+              JSON.stringify(entries, null, 2),
+            );
+          return entries;
+        },
+      },
+      {
+        id: "workspace.removeRecent",
+        title: "Workspace: Remove from Recently Opened…",
+        parameters: {
+          id: "Optional history ID; removes the entry, never the folder",
+        },
+        run: async (args) => {
+          if (args.id !== undefined)
+            setRecent(await window.lwr.removeRecent(args.id));
+          else {
+            setRecent(await window.lwr.recent());
+            setRecentPicker("remove");
+          }
+        },
+      },
+      {
+        id: "workspace.clearRecent",
+        title: "Workspace: Clear Recently Opened…",
+        run: () =>
+          setPrompt({
+            title: "Clear recently opened workspaces?",
+            detail:
+              "This clears the list on this laptop. Your folders and open windows are unchanged.",
+            confirm: "Clear history",
+            action: async () => {
+              setRecent(await window.lwr.clearRecent());
+            },
+          }),
+      },
+      {
         id: "window.openFolder",
         title: local
           ? "Window: Open Local Folder in New Window"
@@ -599,7 +676,7 @@ export default function App() {
       {
         id: "window.new",
         title: "Window: New Window at Current Project",
-        enabled: connected,
+        enabled: connected && !!root,
         run: () => window.lwr.openWindow(root),
       },
       {
@@ -1446,6 +1523,17 @@ export default function App() {
     report,
   );
   useEffect(() => {
+    const unsubscribe = window.lwr.onRecent(setRecent);
+    void window.lwr.recent().then(setRecent).catch(report);
+    const stopCommands = window.lwr.onCommand(({ id, args }) =>
+      execute(id, args),
+    );
+    return () => {
+      unsubscribe();
+      stopCommands();
+    };
+  }, [commandApi]);
+  useEffect(() => {
     const unsubscribe = window.lwr.onConnection((state) => {
       if (state.status === "disconnected") setTerminalNeedsRestart(true);
       setConnection(state);
@@ -1456,7 +1544,8 @@ export default function App() {
       try {
         const state = await window.lwr.connect();
         setConnection(state);
-        setRoot(config.root || state.home || "/");
+        setRoot(config.root ?? state.home ?? "/");
+        if (config.root === "") setTerminalVisible(false);
         if (config.file) void openFile(config.file, 1);
       } catch (error) {
         report(error);
@@ -1475,6 +1564,7 @@ export default function App() {
       // Respect editor/Vim bindings, particularly Ctrl+R (redo) and Ctrl+W.
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
+        setRecentPicker(null);
         setPrompt(null);
         setPathPrompt(null);
         setFolderInput(null);
@@ -1492,7 +1582,10 @@ export default function App() {
       else if (event.ctrlKey && key === "`") id = "terminal.toggle";
       else if (event.ctrlKey && event.shiftKey && key === "e")
         id = "explorer.toggle";
-      else if (event.ctrlKey && key === "r") id = "window.reload";
+      else if (event.ctrlKey && key === "r")
+        id = event.altKey ? "workspace.openRecent" : "window.reload";
+      else if (event.ctrlKey && event.shiftKey && key === "n")
+        id = "window.newEmpty";
       else if (event.ctrlKey && key === "w") id = "file.close";
       else if (event.ctrlKey && key === "\\") id = "group.splitRight";
       if (id) {
@@ -1887,7 +1980,9 @@ export default function App() {
             <p>
               Read the work. Follow the reasoning.
               <br />
-              Open a file from your workspace.
+              {root
+                ? "Open a file from your workspace."
+                : "Open a folder or return to recent work."}
             </p>
             <div className="welcome-hints">
               <span>
@@ -1908,7 +2003,7 @@ export default function App() {
               onClick={() => execute("window.openFolder")}
             >
               <FolderOpen size={15} />
-              Open a different folder
+              {root ? "Open a different folder" : "Open a local folder"}
               <ArrowUpRight size={13} />
             </button>
             <button
@@ -1919,6 +2014,12 @@ export default function App() {
             >
               {local ? <Wifi size={15} /> : <FolderOpen size={15} />}
               {local ? "Connect to Remote" : "Open a local folder"}
+            </button>
+            <button
+              className="text-button"
+              onClick={() => execute("workspace.openRecent")}
+            >
+              <FolderOpen size={15} /> Open Recent
             </button>
           </div>
         )}
@@ -1945,13 +2046,23 @@ export default function App() {
       <header className="topbar">
         <img className="app-logo" src={owletLogo} alt="Owlet" />
         <button
+          className="file-menu-button"
+          aria-haspopup="menu"
+          aria-label="File"
+          onClick={() => execute("menu.file")}
+        >
+          File
+        </button>
+        <button
           className="workspace-pill"
           title={root || "Open folder"}
           aria-label="Open workspace folder"
           onClick={() => execute("window.openFolder")}
         >
           <FolderOpen size={14} />
-          <strong>{root ? basename(root) : "connecting"}</strong>
+          <strong>
+            {root ? basename(root) : connected ? "Open folder" : "connecting"}
+          </strong>
         </button>
         <div className="top-actions">
           <button
@@ -1994,6 +2105,15 @@ export default function App() {
           </button>
         </div>
       </header>
+      {recentPicker && (
+        <RecentWorkspaces
+          entries={recent}
+          removing={recentPicker === "remove"}
+          onOpen={(id) => execute("workspace.openRecent", { id })}
+          onRemove={(id) => execute("workspace.removeRecent", { id })}
+          onClose={() => setRecentPicker(null)}
+        />
+      )}
       <main className="workspace">
         {
           <>

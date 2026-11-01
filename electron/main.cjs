@@ -23,6 +23,10 @@ for (const key of ["USER_DATA", "SSH_TARGET", "ROOT", "DEV_URL", "SSH_PROXY"])
     process.env[`LWR_${key}`] = process.env[`OWLET_${key}`];
 if (process.env.LWR_USER_DATA)
   app.setPath("userData", process.env.LWR_USER_DATA);
+const { RecentWorkspaces } = require("./recent.cjs");
+const recent = new RecentWorkspaces(
+  path.join(app.getPath("userData"), "recent-workspaces.json"),
+);
 const sessions = new Map();
 const windows = new Map();
 const terminals = new Map();
@@ -207,7 +211,118 @@ ipcMain.handle("remote", async (event, method, args) => {
       throw error;
     }
   }
-  return connection.request(method, args);
+  const result = await connection.request(method, args);
+  const record = windows.get(event.sender.id);
+  if (
+    method === "list" &&
+    !record.remembered &&
+    record.root !== "" &&
+    args.path === (record.root || connection.state.home)
+  ) {
+    record.remembered = true;
+    try {
+      sendAll(
+        "recent-changed",
+        recent.remember({
+          kind: connection.kind,
+          target: connection.target,
+          path: result.path,
+        }),
+      );
+    } catch (error) {
+      console.warn("Could not save recent workspaces:", error.message);
+    }
+  }
+  return result;
+});
+ipcMain.handle("new-window", (event) => {
+  trusted(event);
+  openWindow("", undefined, sessionFor());
+});
+ipcMain.handle("recent-list", (event) => {
+  trusted(event);
+  return recent.list();
+});
+ipcMain.handle("recent-remove", (event, id) => {
+  trusted(event);
+  if (typeof id !== "string") throw new Error("Invalid recent workspace ID");
+  const entries = recent.remove(id);
+  sendAll("recent-changed", entries);
+  return entries;
+});
+ipcMain.handle("recent-clear", (event) => {
+  trusted(event);
+  const entries = recent.clear();
+  sendAll("recent-changed", entries);
+  return entries;
+});
+ipcMain.handle("recent-open", async (event, id) => {
+  trusted(event);
+  const entry = recent.list().find((item) => item.id === id);
+  if (!entry) throw new Error("This workspace is no longer in Open Recent");
+  const session = sessionFor(entry.target);
+  if (entry.kind === "local") {
+    const info = await session.request("stat", { path: entry.path });
+    if (!info.directory) throw new Error("This folder is no longer available");
+    openWindow(info.path, undefined, session);
+  } else {
+    void session.connect().catch(() => {});
+    openWindow(entry.path, undefined, session);
+  }
+});
+ipcMain.handle("file-menu", (event) => {
+  trusted(event);
+  const invoke =
+    (id, args = {}) =>
+    () => {
+      if (!event.sender.isDestroyed())
+        event.sender.send("execute-command", { id, args });
+    };
+  const entries = recent.list();
+  Menu.buildFromTemplate([
+    {
+      label: "New Window",
+      accelerator: "Ctrl+Shift+N",
+      click: invoke("window.newEmpty"),
+    },
+    { label: "Open Local Folder…", click: invoke("workspace.openLocal") },
+    { label: "Connect to Remote…", click: invoke("workspace.openSSH") },
+    {
+      label: "Open Recent",
+      submenu: [
+        {
+          label: "Recently Opened Windows…",
+          click: invoke("workspace.openRecent"),
+        },
+        { type: "separator" },
+        ...(entries.length
+          ? entries.slice(0, 15).map((item) => ({
+              label:
+                `${item.path}${item.kind === "ssh" ? ` [SSH: ${item.target}]` : " [Local]"}`.replaceAll(
+                  "&",
+                  "&&",
+                ),
+              click: invoke("workspace.openRecent", { id: item.id }),
+            }))
+          : [{ label: "No recent workspaces", enabled: false }]),
+        { type: "separator" },
+        {
+          label: "Clear Recently Opened…",
+          enabled: entries.length > 0,
+          click: invoke("workspace.clearRecent"),
+        },
+      ],
+    },
+    { type: "separator" },
+    { label: "Save", accelerator: "Ctrl+S", click: invoke("file.save") },
+    { label: "Save All", click: invoke("file.saveAll") },
+    { type: "separator" },
+    { label: "Close Window", click: invoke("window.close") },
+  ]).popup({
+    window: BrowserWindow.fromWebContents(event.sender),
+    x: 34,
+    y: 32,
+  });
 });
 ipcMain.handle("open-window", async (event, root) => {
   trusted(event);
