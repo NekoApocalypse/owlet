@@ -15,7 +15,6 @@ Open a local folder or work over SSH, with rich Markdown and fast project switch
 - **Your familiar workspace.** File explorer, tabs, resizable splits, Vim mode, and a command palette. Keep the plan beside the implementation.
 - **`owlet .` and you’re there.** Change directory in the integrated terminal and open another project window, just like `code .`.
 - **Local or SSH. Same workflow.** Read files on your laptop or server. SSH uses your existing setup, with no persistent remote server to install.
-- **Your edits stay yours.** Unsaved tabs get a dot. Agent changes refresh clean files; conflicting saves ask you to compare before replacing anything.
 - **Recognize projects at a glance.** Give each window a Peacock-style color. Import a VS Code project color once, or choose your own.
 
 ## Getting Started
