@@ -247,10 +247,21 @@ export default function Preview({
               `lwr-diagram-${++diagramCounter}`,
               source,
             );
-            if (!cancelled)
+            if (!cancelled) {
               diagram.innerHTML = DOMPurify.sanitize(svg, {
                 USE_PROFILES: { svg: true, svgFilters: true },
               });
+              diagram.dataset.diagramIndex = String(diagrams.indexOf(diagram));
+              const expand = document.createElement("button");
+              expand.className = "diagram-expand";
+              expand.textContent = "Expand";
+              expand.title = "Expand diagram · zoom and pan";
+              expand.setAttribute(
+                "aria-label",
+                `Expand Mermaid diagram ${diagrams.indexOf(diagram) + 1}`,
+              );
+              diagram.appendChild(expand);
+            }
           } catch (error) {
             if (!cancelled) {
               diagram.textContent = `Diagram error: ${String(error)}`;
@@ -269,6 +280,13 @@ export default function Preview({
       ref={container}
       dangerouslySetInnerHTML={{ __html: html }}
       onClick={(event) => {
+        const expand = (event.target as HTMLElement).closest(".diagram-expand");
+        if (expand) {
+          onCommand("diagram.open", {
+            index: Number(expand.parentElement!.dataset.diagramIndex),
+          });
+          return;
+        }
         const link = (event.target as HTMLElement).closest("a");
         if (!link) return;
         event.preventDefault();

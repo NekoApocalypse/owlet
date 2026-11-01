@@ -28,12 +28,16 @@ import {
   Maximize,
   Minus,
   ArrowUpRight,
+  ArrowDownLeft,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
 import Editor, { editorAction } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
-import type { RecentWorkspace } from "./types";
+import DiagramViewer, { type DiagramView } from "./DiagramViewer";
+import type { RecentWorkspace, TerminalSession } from "./types";
 import { useProjectAppearance } from "./projectAppearance";
 import {
   basename,
@@ -197,6 +201,7 @@ function ImageViewer({
 }
 
 export default function App() {
+  const [diagramView, setDiagramView] = useState<DiagramView | null>(null);
   const [recent, setRecent] = useState<RecentWorkspace[]>([]);
   const [recentPicker, setRecentPicker] = useState<"open" | "remove" | null>(
     null,
@@ -223,7 +228,15 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(252);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(220);
-  const [terminalRestart, setTerminalRestart] = useState(0);
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>(
+    [],
+  );
+  const [activeTerminal, setActiveTerminal] = useState<string>();
+  const [terminalChooser, setTerminalChooser] = useState(false);
+  const terminalSerial = useRef(0);
+  const initialTerminal = useRef(false);
+  const terminalsRef = useRef(terminalSessions);
+  terminalsRef.current = terminalSessions;
   const [vimMode, setVimMode] = useState(
     localStorage.getItem("lwr-vim") === "true",
   );
@@ -239,7 +252,6 @@ export default function App() {
     root: string;
   } | null>(null);
   const [comparison, setComparison] = useState<string | null>(null);
-  const [terminalNeedsRestart, setTerminalNeedsRestart] = useState(false);
   const [paletteVisible, setPaletteVisible] = useState(false);
   const [pathPrompt, setPathPrompt] = useState<{
     title: string;
@@ -261,6 +273,16 @@ export default function App() {
   const currentGroup =
     groups(layout).find((group) => group.id === activeGroup) ||
     groups(layout)[0];
+  const selectedTerminal =
+    terminalSessions.find((item) => item.id === activeTerminal) ||
+    terminalSessions[0];
+  const panelTerminals = terminalSessions.filter(
+    (item) => item.location === "panel",
+  );
+  const panelTerminal =
+    panelTerminals.find((item) => item.id === activeTerminal) ||
+    panelTerminals[0];
+  const terminalNeedsRestart = selectedTerminal?.status === "disconnected";
   const activeDocument = currentGroup.active
     ? documents[currentGroup.active]
     : undefined;
@@ -299,6 +321,8 @@ export default function App() {
       return next;
     });
   function activate(path: string, group = groupRef.current) {
+    if (terminalsRef.current.some((item) => item.id === path))
+      setActiveTerminal(path);
     setLayout((previous) =>
       mapGroup(previous, group, (value) => ({
         ...value,
@@ -461,6 +485,10 @@ export default function App() {
     else if (discard) patch(path, { text: docsRef.current[path]?.saved || "" });
   }
   function closeFile(path: string, groupId: number) {
+    if (terminalsRef.current.some((item) => item.id === path)) {
+      execute("terminal.close", { id: path });
+      return;
+    }
     const doc = docsRef.current[path];
     const occurrences = groups(layoutRef.current).filter((group) =>
       group.tabs.includes(path),
@@ -476,6 +504,9 @@ export default function App() {
   }
   function splitGroup(group: Group, axis: "row" | "column") {
     const id = nextGroup++;
+    const terminal = terminalsRef.current.some(
+      (item) => item.id === group.active,
+    );
     if (group.active)
       setViewModes((previous) => ({
         ...previous,
@@ -490,7 +521,16 @@ export default function App() {
         id: nextSplit++,
         axis,
         ratio: 0.5,
-        first: { kind: "group", group },
+        first: {
+          kind: "group",
+          group: terminal
+            ? {
+                ...group,
+                tabs: group.tabs.filter((item) => item !== group.active),
+                active: group.tabs.find((item) => item !== group.active),
+              }
+            : group,
+        },
         second: {
           kind: "group",
           group: {
@@ -504,6 +544,12 @@ export default function App() {
     setActiveGroup(id);
   }
   function moveTab(path: string, source: number, destination: number) {
+    const all = groups(layoutRef.current);
+    if (
+      !all.some((group) => group.id === source && group.tabs.includes(path)) ||
+      !all.some((group) => group.id === destination)
+    )
+      throw new Error("Choose an open tab and destination group");
     if (source === destination) return;
     setLayout((previous) => {
       let next = mapGroup(previous, destination, (group) => ({
@@ -527,6 +573,70 @@ export default function App() {
   }
   const connected = connection.status === "connected";
   const local = connection.kind === "local";
+  function terminalById(id = selectedTerminal?.id) {
+    const item = terminalsRef.current.find((item) => item.id === id);
+    if (!item) throw new Error("Choose an existing terminal");
+    return item;
+  }
+  function updateTerminal(id: string, change: Partial<TerminalSession>) {
+    setTerminalSessions((items) =>
+      items.map((item) => (item.id === id ? { ...item, ...change } : item)),
+    );
+  }
+  function createTerminal() {
+    const id = `owlet-terminal:${crypto.randomUUID()}`;
+    const item: TerminalSession = {
+      id,
+      name: `${connection.shell || (local ? "PowerShell" : "Bash")} ${++terminalSerial.current}`,
+      path: root,
+      location: "panel",
+      status: "starting",
+      restart: 0,
+    };
+    setTerminalSessions((items) => [...items, item]);
+    setActiveTerminal(id);
+    setTerminalVisible(true);
+    return id;
+  }
+  function detachTerminalTab(id: string) {
+    setLayout((previous) => {
+      let next = previous;
+      for (const group of groups(previous))
+        next = mapGroup(next, group.id, (item) => {
+          const tabs = item.tabs.filter((tab) => tab !== id);
+          return {
+            ...item,
+            tabs,
+            active: item.active === id ? tabs[0] : item.active,
+          };
+        });
+      return next;
+    });
+  }
+  function revealTerminal(item: TerminalSession) {
+    setActiveTerminal(item.id);
+    if (item.location === "panel") setTerminalVisible(true);
+    else {
+      const group = groups(layoutRef.current).find((group) =>
+        group.tabs.includes(item.id),
+      );
+      if (group) activate(item.id, group.id);
+    }
+    return new Promise<void>((resolve) =>
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("owlet-terminal-focus", { detail: { id: item.id } }),
+        );
+        resolve();
+      }, 60),
+    );
+  }
+  useEffect(() => {
+    if (root && connected && !initialTerminal.current) {
+      initialTerminal.current = true;
+      createTerminal();
+    }
+  }, [root, connected]);
   const appearance = useProjectAppearance(
     root,
     connection.target,
@@ -571,6 +681,185 @@ export default function App() {
         title: "Show Command Palette",
         shortcut: "Ctrl+Shift+P / F1",
         run: () => setPaletteVisible(true),
+      },
+      {
+        id: "diagram.open",
+        title: "Markdown: Expand Mermaid Diagram…",
+        keywords: ["Fullscreen diagram", "Zoom Mermaid"],
+        parameters: {
+          index: "Zero-based diagram index; defaults to first rendered diagram",
+          group: "Optional preview group ID",
+        },
+        enabled: groups(layout).some(
+          (group) => !!group.active && isMarkdown(group.active),
+        ),
+        run: (args) => {
+          const group = args.group ?? currentGroup.id;
+          const index = args.index ?? 0;
+          if (!Number.isInteger(index) || index < 0 || !Number.isInteger(group))
+            throw new Error("Choose a valid diagram and group");
+          const source = document
+            .querySelectorAll<HTMLElement>(`[data-group="${group}"] .diagram`)
+            [index]?.querySelector<SVGSVGElement>("svg");
+          if (!source)
+            throw new Error(
+              "Open the Markdown preview and wait for its diagrams to render",
+            );
+          const width =
+            source.viewBox.baseVal.width ||
+            source.getBoundingClientRect().width;
+          const height =
+            source.viewBox.baseVal.height ||
+            source.getBoundingClientRect().height;
+          if (!width || !height)
+            throw new Error("This diagram has no drawable area");
+          const file = groups(layoutRef.current).find(
+            (item) => item.id === group,
+          )?.active;
+          const svg = source.cloneNode(true) as SVGSVGElement;
+          svg.setAttribute("width", String(width));
+          svg.setAttribute("height", String(height));
+          svg.style.width = `${width}px`;
+          svg.style.height = `${height}px`;
+          svg.style.maxWidth = "none";
+          setDiagramView({
+            svg: svg.outerHTML,
+            title: `${basename(file || "Markdown")} · Diagram ${index + 1}`,
+            width,
+            height,
+            scale: 1,
+            x: 0,
+            y: 0,
+          });
+        },
+      },
+      {
+        id: "diagram.close",
+        title: "Diagram: Close Expanded View",
+        enabled: !!diagramView,
+        run: () => setDiagramView(null),
+      },
+      ...(["fit", "actualSize"] as const).map((action) => ({
+        id: `diagram.${action}`,
+        title:
+          action === "fit"
+            ? "Diagram: Fit to View"
+            : "Diagram: Actual Size (100%)",
+        enabled: !!diagramView,
+        run: () => {
+          const rect = document
+            .querySelector(".diagram-canvas")
+            ?.getBoundingClientRect();
+          if (!rect) return;
+          setDiagramView((value) => {
+            if (!value) return value;
+            const scale =
+              action === "fit"
+                ? Math.max(
+                    0.02,
+                    Math.min(
+                      (rect.width - 48) / value.width,
+                      (rect.height - 48) / value.height,
+                      16,
+                    ),
+                  )
+                : 1;
+            return {
+              ...value,
+              scale,
+              x: (rect.width - value.width * scale) / 2,
+              y: (rect.height - value.height * scale) / 2,
+            };
+          });
+        },
+      })),
+      ...(["zoomIn", "zoomOut"] as const).map((action) => ({
+        id: `diagram.${action}`,
+        title: action === "zoomIn" ? "Diagram: Zoom In" : "Diagram: Zoom Out",
+        enabled: !!diagramView,
+        run: () =>
+          commandApi.execute("diagram.zoom", {
+            factor: action === "zoomIn" ? 1.25 : 0.8,
+          }),
+      })),
+      {
+        id: "diagram.zoom",
+        title: "Diagram: Set Zoom…",
+        enabled: !!diagramView,
+        parameters: {
+          scale: "Absolute scale (1 = 100%), clamped to 0.02–16",
+          factor: "Optional relative multiplier instead of scale",
+          x: "Optional anchor x in canvas pixels",
+          y: "Optional anchor y in canvas pixels",
+        },
+        run: (args) => {
+          const apply = (scale?: number, factor?: number) => {
+            if (
+              (scale !== undefined &&
+                (!Number.isFinite(scale) || scale <= 0)) ||
+              (factor !== undefined &&
+                (!Number.isFinite(factor) || factor <= 0))
+            )
+              throw new Error("Choose a positive zoom");
+            const rect = document
+              .querySelector(".diagram-canvas")
+              ?.getBoundingClientRect();
+            if (!rect) return;
+            const x = args.x ?? rect.width / 2,
+              y = args.y ?? rect.height / 2;
+            if (!Number.isFinite(x) || !Number.isFinite(y))
+              throw new Error("Invalid zoom anchor");
+            setDiagramView((value) => {
+              if (!value) return value;
+              const next = Math.max(
+                0.02,
+                Math.min(16, scale ?? value.scale * (factor ?? 1)),
+              );
+              return {
+                ...value,
+                scale: next,
+                x: x - ((x - value.x) * next) / value.scale,
+                y: y - ((y - value.y) * next) / value.scale,
+              };
+            });
+          };
+          return args.scale === undefined && args.factor === undefined
+            ? setPathPrompt({
+                title: "Diagram zoom (%)",
+                value: String(Math.round(diagramView!.scale * 100)),
+                action: (value) => apply(Number(value) / 100),
+              })
+            : apply(args.scale, args.factor);
+        },
+      },
+      {
+        id: "diagram.pan",
+        title: "Diagram: Pan…",
+        enabled: !!diagramView,
+        parameters: {
+          dx: "Horizontal movement in pixels",
+          dy: "Vertical movement in pixels",
+        },
+        run: (args) => {
+          const apply = (dx: number, dy: number) => {
+            if (!Number.isFinite(dx) || !Number.isFinite(dy))
+              throw new Error("Enter numeric x, y movement");
+            setDiagramView(
+              (value) =>
+                value && { ...value, x: value.x + dx, y: value.y + dy },
+            );
+          };
+          return args.dx === undefined && args.dy === undefined
+            ? setPathPrompt({
+                title: "Pan by x, y pixels",
+                value: "100, 0",
+                action: (value) => {
+                  const [x, y] = value.split(",").map(Number);
+                  apply(x, y);
+                },
+              })
+            : apply(args.dx ?? 0, args.dy ?? 0);
+        },
       },
       {
         id: "menu.file",
@@ -849,9 +1138,12 @@ export default function App() {
         id: "file.close",
         title: "File: Close Active Tab",
         shortcut: "Ctrl+W / :q",
-        enabled: !!current,
+        enabled: !!currentGroup.active,
         run: (args) =>
-          closeFile(args.path || current!.path, args.group || currentGroup.id),
+          closeFile(
+            args.path || currentGroup.active!,
+            args.group || currentGroup.id,
+          ),
       },
       {
         id: "file.revert",
@@ -1153,9 +1445,12 @@ export default function App() {
       },
       {
         id: "tab.activate",
-        title: "Tab: Activate Open File…",
-        parameters: { path: "Open file path", group: "Optional group ID" },
-        enabled: Object.keys(documents).length > 0,
+        title: "Tab: Activate Open Tab…",
+        parameters: {
+          path: "Open file path or terminal ID",
+          group: "Optional group ID",
+        },
+        enabled: groups(layout).some((group) => group.tabs.length > 0),
         run: (args) => {
           const apply = (path: string) => {
             const group =
@@ -1183,11 +1478,11 @@ export default function App() {
       {
         id: "group.moveTab",
         title: "Group: Move Active Tab to Next Group",
-        enabled: !!current && groups(layout).length > 1,
+        enabled: groups(layout).length > 1,
         run: (args) => {
           const all = groups(layout);
           moveTab(
-            args.path || current!.path,
+            args.path || currentGroup.active!,
             args.source || currentGroup.id,
             args.destination ||
               all[
@@ -1304,7 +1599,19 @@ export default function App() {
               visible: terminalVisible,
               height: terminalHeight,
               needsRestart: terminalNeedsRestart,
+              active: selectedTerminal?.id,
+              sessions: terminalSessions,
             },
+            diagram: diagramView
+              ? {
+                  title: diagramView.title,
+                  scale: diagramView.scale,
+                  x: diagramView.x,
+                  y: diagramView.y,
+                  width: diagramView.width,
+                  height: diagramView.height,
+                }
+              : null,
             documents: Object.values(documents).map((doc) => ({
               path: doc.path,
               dirty: doc.text !== doc.saved,
@@ -1379,43 +1686,171 @@ export default function App() {
           ),
       },
       {
+        id: "terminal.new",
+        title: "Terminal: New Terminal",
+        shortcut: "Ctrl+Shift+`",
+        enabled: connected && !!root,
+        run: () => createTerminal(),
+      },
+      {
+        id: "terminal.select",
+        title: "Terminal: Switch Terminal…",
+        enabled: terminalSessions.length > 0,
+        parameters: {
+          id: "Optional terminal ID from workspace.state; omit to choose",
+        },
+        run: (args) =>
+          args.id
+            ? revealTerminal(terminalById(args.id))
+            : setTerminalChooser(true),
+      },
+      ...(["next", "previous"] as const).map((direction) => ({
+        id: `terminal.${direction}`,
+        title: `Terminal: ${direction === "next" ? "Next" : "Previous"} Terminal`,
+        enabled: terminalSessions.length > 1,
+        run: () =>
+          revealTerminal(
+            terminalSessions[
+              (terminalSessions.findIndex(
+                (item) => item.id === selectedTerminal?.id,
+              ) +
+                (direction === "next" ? 1 : terminalSessions.length - 1)) %
+                terminalSessions.length
+            ],
+          ),
+      })),
+      {
         id: "terminal.focus",
         title: "Terminal: Focus",
-        run: () => {
+        enabled: connected && !!root,
+        parameters: {
+          id: "Optional terminal ID; defaults to selected terminal",
+        },
+        run: (args) => {
+          if (!terminalSessions.length) return createTerminal();
+          return revealTerminal(terminalById(args.id));
+        },
+      },
+      {
+        id: "terminal.rename",
+        title: "Terminal: Rename Terminal…",
+        enabled: terminalSessions.length > 0,
+        parameters: {
+          id: "Optional terminal ID",
+          name: "Optional display name, up to 80 characters",
+        },
+        run: (args) => {
+          const item = terminalById(args.id);
+          const apply = (name: string) => {
+            if (typeof name !== "string" || !name.trim() || name.length > 80)
+              throw new Error("Enter a terminal name from 1 to 80 characters");
+            updateTerminal(item.id, { name: name.trim() });
+          };
+          return args.name === undefined
+            ? setPathPrompt({
+                title: "Terminal name",
+                value: item.name,
+                action: apply,
+              })
+            : apply(args.name);
+        },
+      },
+      {
+        id: "terminal.moveToEditor",
+        title: "Terminal: Move Terminal into Editor Area",
+        enabled: terminalSessions.length > 0,
+        parameters: {
+          id: "Optional terminal ID",
+          group: "Optional destination editor group ID",
+        },
+        run: (args) => {
+          const item = terminalById(args.id),
+            group = args.group ?? currentGroup.id;
+          if (!groups(layoutRef.current).some((item) => item.id === group))
+            throw new Error("Unknown editor group");
+          detachTerminalTab(item.id);
+          updateTerminal(item.id, { location: "editor" });
+          activate(item.id, group);
+          setActiveTerminal(item.id);
+          if (panelTerminals.length === 1 && item.location === "panel")
+            setTerminalVisible(false);
+        },
+      },
+      {
+        id: "terminal.moveToPanel",
+        title: "Terminal: Move Terminal into Panel",
+        enabled: terminalSessions.length > 0,
+        parameters: { id: "Optional terminal ID" },
+        run: (args) => {
+          const item = terminalById(args.id);
+          detachTerminalTab(item.id);
+          updateTerminal(item.id, { location: "panel" });
+          setActiveTerminal(item.id);
           setTerminalVisible(true);
-          return new Promise<void>((resolve) =>
-            setTimeout(() => {
-              document
-                .querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
-                ?.focus();
-              resolve();
-            }, 60),
-          );
+        },
+      },
+      {
+        id: "terminal.close",
+        title: "Terminal: Kill Terminal",
+        enabled: terminalSessions.length > 0,
+        parameters: {
+          id: "Optional terminal ID; running shells require confirmation",
+        },
+        run: (args) => {
+          const item = terminalById(args.id);
+          const close = () => {
+            detachTerminalTab(item.id);
+            setTerminalSessions((items) =>
+              items.filter((entry) => entry.id !== item.id),
+            );
+          };
+          if (["starting", "running"].includes(item.status))
+            setPrompt({
+              title: `Kill ${item.name}?`,
+              detail:
+                "This ends this shell and any agent or process running in it. Other terminals stay open.",
+              confirm: "Kill terminal",
+              action: close,
+            });
+          else close();
         },
       },
       {
         id: "terminal.restart",
         title: "Terminal: Restart Shell",
-        enabled: connected,
-        run: () =>
+        enabled: connected && terminalSessions.length > 0,
+        parameters: { id: "Optional terminal ID" },
+        run: (args) => {
+          const item = terminalById(args.id);
           setPrompt({
             title: "Start a new shell?",
-            detail:
-              "The direct shell is replaced. Your multiplexer owns its persistent sessions.",
+            detail: `The shell in ${item.name} is replaced. Other terminals stay open.`,
             confirm: "Restart terminal",
-            action: () => {
-              setTerminalNeedsRestart(false);
-              setTerminalRestart((value) => value + 1);
-            },
-          }),
+            action: () =>
+              updateTerminal(item.id, {
+                restart: item.restart + 1,
+                status: "starting",
+                pty: undefined,
+              }),
+          });
+        },
       },
       {
         id: "terminal.start",
         title: "Terminal: Start Shell After Reconnect",
-        enabled: connected && terminalNeedsRestart,
-        run: () => {
-          setTerminalNeedsRestart(false);
-          setTerminalRestart((value) => value + 1);
+        enabled:
+          connected &&
+          terminalSessions.some((item) => item.status === "disconnected"),
+        parameters: { id: "Optional disconnected terminal ID" },
+        run: (args) => {
+          const item = terminalById(args.id);
+          if (item.status !== "disconnected")
+            throw new Error("This terminal does not need reconnecting");
+          updateTerminal(item.id, {
+            restart: item.restart + 1,
+            status: "starting",
+            pty: undefined,
+          });
         },
       },
       {
@@ -1446,16 +1881,19 @@ export default function App() {
       {
         id: "terminal.sendText",
         title: "Terminal: Send Text…",
-        enabled: connected && !terminalNeedsRestart,
+        enabled: connected && terminalSessions.length > 0,
         parameters: {
+          id: "Optional terminal ID; defaults to selected terminal",
           text: "Literal terminal input; include a carriage return only when execution is intended",
         },
         run: (args) => {
           const apply = (text: string) => {
             if (typeof text !== "string")
               throw new Error("Terminal input must be text");
-            setTerminalVisible(true);
-            const detail = { text, accepted: false };
+            const item = terminalById(args.id);
+            if (!["starting", "running"].includes(item.status))
+              throw new Error("Restart this terminal before sending input");
+            const detail = { id: item.id, text, accepted: false };
             window.dispatchEvent(
               new CustomEvent("owlet-terminal-input", { detail }),
             );
@@ -1535,7 +1973,10 @@ export default function App() {
   }, [commandApi]);
   useEffect(() => {
     const unsubscribe = window.lwr.onConnection((state) => {
-      if (state.status === "disconnected") setTerminalNeedsRestart(true);
+      if (state.status === "disconnected")
+        setTerminalSessions((items) =>
+          items.map((item) => ({ ...item, status: "disconnected" })),
+        );
       setConnection(state);
       if (state.error) report(state.error);
     });
@@ -1564,6 +2005,7 @@ export default function App() {
       // Respect editor/Vim bindings, particularly Ctrl+R (redo) and Ctrl+W.
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
+        setTerminalChooser(false);
         setRecentPicker(null);
         setPrompt(null);
         setPathPrompt(null);
@@ -1580,6 +2022,8 @@ export default function App() {
       else if ((event.ctrlKey || event.metaKey) && key === "s")
         id = "file.save";
       else if (event.ctrlKey && key === "`") id = "terminal.toggle";
+      else if (event.ctrlKey && event.shiftKey && key === "~")
+        id = "terminal.new";
       else if (event.ctrlKey && event.shiftKey && key === "e")
         id = "explorer.toggle";
       else if (event.ctrlKey && key === "r")
@@ -1605,7 +2049,9 @@ export default function App() {
         ...new Set(
           groups(layoutRef.current)
             .map((group) => group.active)
-            .filter((path): path is string => !!path),
+            .filter(
+              (path): path is string => !!path && !!docsRef.current[path],
+            ),
         ),
       ];
       if (!paths.length) return;
@@ -1708,7 +2154,31 @@ export default function App() {
       report(error);
     }
   }
+  function terminalSlot(item: TerminalSession) {
+    return (
+      <>
+        {item.status === "disconnected" && (
+          <div className="terminal-disconnected">
+            <span>
+              {connected
+                ? "Your old shell ended when SSH disconnected."
+                : "SSH disconnected. Reconnect to continue."}
+            </span>
+            {connected && (
+              <button
+                onClick={() => execute("terminal.start", { id: item.id })}
+              >
+                Start new shell
+              </button>
+            )}
+          </div>
+        )}
+        <div className="terminal-slot" id={"terminal-slot-" + item.id} />
+      </>
+    );
+  }
   function renderGroup(group: Group): ReactNode {
+    const terminal = terminalSessions.find((item) => item.id === group.active);
     const file = group.active ? documents[group.active] : undefined;
     const doc = file
       ? { ...file, mode: viewModes[`${group.id}:${file.path}`] || file.mode }
@@ -1722,6 +2192,16 @@ export default function App() {
         onDrop={(event) => {
           event.preventDefault();
           try {
+            const terminalId = event.dataTransfer.getData(
+              "application/owlet-terminal",
+            );
+            if (terminalId) {
+              execute("terminal.moveToEditor", {
+                id: terminalId,
+                group: group.id,
+              });
+              return;
+            }
             const { path, source } = JSON.parse(
               event.dataTransfer.getData("application/lwr-tab"),
             );
@@ -1732,6 +2212,10 @@ export default function App() {
         <div className="tabs-bar">
           <div className="tabs" role="tablist">
             {group.tabs.map((path) => {
+              const terminalTab = terminalSessions.find(
+                (item) => item.id === path,
+              );
+              const label = terminalTab?.name || basename(path);
               const item = documents[path],
                 isDirty = item && item.text !== item.saved;
               return (
@@ -1741,7 +2225,10 @@ export default function App() {
                   role="tab"
                   aria-selected={group.active === path}
                   draggable
-                  title={path}
+                  title={
+                    terminalTab ? `${label} · ${terminalTab.status}` : path
+                  }
+                  data-terminal-tab={terminalTab?.id}
                   onDragStart={(event) => {
                     event.dataTransfer.setData(
                       "application/lwr-tab",
@@ -1752,8 +2239,12 @@ export default function App() {
                     execute("tab.activate", { path, group: group.id })
                   }
                 >
-                  <FileIcon path={path} />
-                  <span>{basename(path)}</span>
+                  {terminalTab ? (
+                    <TerminalSquare size={15} />
+                  ) : (
+                    <FileIcon path={path} />
+                  )}
+                  <span>{label}</span>
                   {isDirty && (
                     <span
                       className="dirty-dot"
@@ -1763,8 +2254,8 @@ export default function App() {
                   )}
                   <button
                     className="tab-close"
-                    title={`Close ${basename(path)}`}
-                    aria-label={`Close ${basename(path)}`}
+                    title={`Close ${label}`}
+                    aria-label={`Close ${label}`}
                     onClick={(event) => {
                       event.stopPropagation();
                       execute("file.close", { path, group: group.id });
@@ -1802,7 +2293,45 @@ export default function App() {
             )}
           </div>
         </div>
-        {doc ? (
+        {terminal ? (
+          <div className="editor-terminal">
+            <div className="terminal-toolbar">
+              <span className="terminal-title">
+                {terminal.name} · {terminal.status}
+              </span>
+              <div className="actions">
+                <button
+                  title="Rename terminal"
+                  aria-label="Rename terminal"
+                  onClick={() =>
+                    execute("terminal.rename", { id: terminal.id })
+                  }
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  title="Move terminal to panel"
+                  aria-label="Move terminal to panel"
+                  onClick={() =>
+                    execute("terminal.moveToPanel", { id: terminal.id })
+                  }
+                >
+                  <ArrowDownLeft size={14} />
+                </button>
+                <button
+                  title="Restart terminal"
+                  aria-label="Restart terminal"
+                  onClick={() =>
+                    execute("terminal.restart", { id: terminal.id })
+                  }
+                >
+                  <RefreshCw size={13} />
+                </button>
+              </div>
+            </div>
+            {terminalSlot(terminal)}
+          </div>
+        ) : doc ? (
           <>
             <div className="document-toolbar">
               <div className="breadcrumbs" title={doc.path}>
@@ -2198,9 +2727,52 @@ export default function App() {
                     New workspace: <code>owlet .</code>
                   </span>
                   <button
+                    title="New terminal"
+                    aria-label="New terminal"
+                    disabled={!connected || !root}
+                    onClick={() => execute("terminal.new")}
+                  >
+                    <Plus size={14} />
+                  </button>
+                  <button
+                    title="Move terminal to editor"
+                    aria-label="Move terminal to editor"
+                    disabled={!panelTerminal}
+                    onClick={() =>
+                      execute("terminal.moveToEditor", {
+                        id: panelTerminal?.id,
+                      })
+                    }
+                  >
+                    <ArrowUpRight size={14} />
+                  </button>
+                  <button
+                    title="Rename terminal"
+                    aria-label="Rename terminal"
+                    disabled={!panelTerminal}
+                    onClick={() =>
+                      execute("terminal.rename", { id: panelTerminal?.id })
+                    }
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    title="Kill terminal"
+                    aria-label="Kill terminal"
+                    disabled={!panelTerminal}
+                    onClick={() =>
+                      execute("terminal.close", { id: panelTerminal?.id })
+                    }
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                  <button
                     title="Restart terminal"
                     aria-label="Restart terminal"
-                    onClick={() => execute("terminal.restart")}
+                    disabled={!panelTerminal}
+                    onClick={() =>
+                      execute("terminal.restart", { id: panelTerminal?.id })
+                    }
                   >
                     <RefreshCw size={13} />
                   </button>
@@ -2215,35 +2787,131 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              {connection.status === "connected" && !terminalNeedsRestart ? (
-                <Suspense
-                  fallback={<div className="loading">Opening shell…</div>}
-                >
-                  <TerminalPane
-                    root={root}
-                    connection={connection}
-                    restart={terminalRestart}
-                    onError={report}
-                  />
-                </Suspense>
-              ) : (
-                <div className="terminal-disconnected">
-                  {connection.status !== "connected" ? (
-                    "SSH disconnected. Reconnect to continue."
+              <div
+                className="terminal-body"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  try {
+                    const tab = JSON.parse(
+                      event.dataTransfer.getData("application/lwr-tab"),
+                    );
+                    if (
+                      terminalsRef.current.some((item) => item.id === tab.path)
+                    )
+                      execute("terminal.moveToPanel", { id: tab.path });
+                  } catch {}
+                }}
+              >
+                <div className="terminal-content">
+                  {panelTerminal ? (
+                    terminalSlot(panelTerminal)
                   ) : (
-                    <>
-                      <span>Your old shell ended when SSH disconnected.</span>
-                      <button onClick={() => execute("terminal.start")}>
-                        Start new shell
+                    <div className="terminal-disconnected">
+                      <button
+                        disabled={!connected || !root}
+                        onClick={() => execute("terminal.new")}
+                      >
+                        New terminal
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
-              )}
+                {panelTerminals.length > 1 && (
+                  <div
+                    className="terminal-list"
+                    role="listbox"
+                    aria-label="Terminals"
+                  >
+                    {panelTerminals.map((item) => (
+                      <div className="terminal-list-row" key={item.id}>
+                        <button
+                          role="option"
+                          aria-selected={panelTerminal?.id === item.id}
+                          title={item.name + " · " + item.status}
+                          draggable
+                          onDragStart={(event) =>
+                            event.dataTransfer.setData(
+                              "application/owlet-terminal",
+                              item.id,
+                            )
+                          }
+                          onClick={() =>
+                            execute("terminal.select", { id: item.id })
+                          }
+                          onDoubleClick={() =>
+                            execute("terminal.rename", { id: item.id })
+                          }
+                        >
+                          <TerminalSquare size={13} />
+                          <span>{item.name}</span>
+                          <small>
+                            {item.status === "running" ? "" : item.status}
+                          </small>
+                        </button>
+                        <button
+                          className="terminal-row-close"
+                          aria-label={"Kill " + item.name}
+                          title="Kill terminal"
+                          onClick={() =>
+                            execute("terminal.close", { id: item.id })
+                          }
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </main>
+      {diagramView && (
+        <DiagramViewer diagram={diagramView} onCommand={execute} />
+      )}
+      <Suspense fallback={null}>
+        {terminalSessions.map((item) => (
+          <TerminalPane
+            key={item.id}
+            id={item.id}
+            root={item.path}
+            connection={connection}
+            restart={item.restart}
+            destination={"terminal-slot-" + item.id}
+            onError={report}
+            onFocus={() => setActiveTerminal(item.id)}
+            onStatus={(status, pty) => updateTerminal(item.id, { status, pty })}
+          />
+        ))}
+      </Suspense>
+      {terminalChooser && (
+        <div className="modal-shade">
+          <div className="modal" role="dialog" aria-label="Switch terminal">
+            <h2>Switch terminal</h2>
+            {terminalSessions.map((item) => (
+              <button
+                className="terminal-choice"
+                key={item.id}
+                onClick={() => {
+                  setTerminalChooser(false);
+                  execute("terminal.select", { id: item.id });
+                }}
+              >
+                <TerminalSquare size={15} />
+                {item.name}
+                <small>
+                  {item.location} · {item.status}
+                </small>
+              </button>
+            ))}
+            <div className="modal-actions">
+              <button onClick={() => setTerminalChooser(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       {message && (
         <div
           className={`toast ${/saved|connected/i.test(message) ? "" : "error-toast"}`}

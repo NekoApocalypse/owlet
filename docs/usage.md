@@ -49,7 +49,20 @@ The launcher lives in a temporary directory added only to the integrated shell's
 An existing remote multiplexer can retain an old PATH and launcher socket. Start it from a new Owlet terminal or update
 its PATH and `OWLET_SOCKET` from that terminal. Owlet does not modify your shell profiles.
 
-Hiding the terminal preserves it. **Restart Terminal** replaces it. **Reload Window** starts a new direct shell and prompts
+Use **+** in the terminal toolbar for another shell (Ctrl+Shift plus backtick). When several terminals are in the panel, a list on
+the right lets you switch between them. Double-click a terminal name to rename it, or use **Terminal: Rename Terminal**.
+
+Use **Move terminal to editor** in the toolbar, or drag a terminal from the list into an editor group. It becomes a tab
+alongside files, and can move between groups. Splitting a terminal tab moves that shell into the new group; it does not
+duplicate the shell. **Move terminal to panel** brings it back. Moving, switching tabs, and hiding the panel preserve
+the same shell, running processes, and scrollback. Hidden terminals continue receiving output.
+
+**Kill Terminal** asks before ending a running shell; other terminals stay open. **Restart Terminal** replaces only the
+selected shell. SSH disconnection ends that host's shells; after reconnecting, start each desired shell explicitly.
+Terminals are not restored across application restarts, and there are no terminal profiles or terminal-pane split grids yet.
+Use editor groups to place terminals side by side.
+
+Hiding the terminal preserves it. **Reload Window** starts a new direct shell and prompts
 before discarding unsaved edits. Do not reload a window if you need to preserve work running in its direct shell.
 
 ## Read and edit
@@ -73,6 +86,11 @@ UNC shares require access through the current Windows account and remain depende
 
 Math supports `$...$` and `\(...\)` inline, plus `$$...$$` and `\[...\]` display blocks. Fenced `mermaid` blocks render
 diagrams; other recognized fences receive syntax highlighting. Source and preview scroll independently.
+
+Click **Expand** on a Mermaid diagram for a window-filling viewer. Drag to pan and scroll to zoom around the pointer.
+The toolbar provides zoom, **100%**, and **Fit**; keyboard shortcuts are `+` / `-`, `1`, `0`, arrow keys, and `Esc`.
+Double-click the canvas to fit again. The viewer is a snapshot of the rendered diagram; reopen it to see later Markdown edits.
+Viewing and navigating a diagram never modifies the file. The command palette exposes these controls under **Diagram**.
 
 - `./images/a.png` and `../images/a.png` resolve exactly relative to the Markdown file.
 - `images/a.png` checks the document directory, then ancestors up to the project root. The nearest match wins.
@@ -103,6 +121,11 @@ Settings are limited to 16 KiB. Malformed or symlinked settings are rejected. St
 `.owlet` does not execute configuration or load plugins.
 
 ## Troubleshoot SSH
+
+The explorer refreshes on window focus and with **Refresh Explorer**. If an agent renames or removes an expanded
+directory, its obsolete subtree is removed and the parent listing refreshes. Open files and unsaved edits remain intact;
+Owlet does not guess the new file paths. If the workspace root itself moves, an inline notice offers the next step.
+Open its new location in another window, or refresh after restoring it.
 
 Resolve authentication and host-key issues with your normal SSH client. The session helper needs a writable temporary
 directory with 64 MiB free; set remote `OWLET_TMPDIR` to choose one. Normal shutdown removes the temporary directory;

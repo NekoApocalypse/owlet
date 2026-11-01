@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,7 +10,7 @@ import {
   FolderOpen,
   ArrowUpRight,
 } from "lucide-react";
-import { basename, isImage, isMarkdown, type Entry } from "./types";
+import { basename, dirname, isImage, isMarkdown, type Entry } from "./types";
 type Listing = { entries: Entry[]; path: string; next: number | null };
 export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
   return isImage(path) ? (
@@ -44,13 +44,81 @@ export default function Explorer({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [hidden, setHidden] = useState(false);
+  const [rootError, setRootError] = useState("");
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  const currentRoot = useRef(root);
+  currentRoot.current = root;
+  const pending = useRef(new Set<string>());
+  const inFlight = useRef(new Set<string>());
+  const invalidated = useRef(new Map<string, number>());
+  const generation = useRef(0);
+  const reported = useRef(new Map<string, string>());
+  const within = (candidate: string, parent: string) =>
+    candidate === parent ||
+    candidate.startsWith(parent.replace(/\/$/, "") + "/");
+  const obsolete = (path: string, started: number) =>
+    [...invalidated.current].some(
+      ([parent, at]) => at > started && within(path, parent),
+    );
+  function forget(path: string) {
+    invalidated.current.set(path, ++generation.current);
+    const next = new Set(
+      [...expandedRef.current].filter((item) => !within(item, path)),
+    );
+    if (path === root) next.add(root);
+    expandedRef.current = next;
+    setExpanded(next);
+    setListings((previous) =>
+      Object.fromEntries(
+        Object.entries(previous)
+          .filter(([key]) => !within(key, path))
+          .map(([key, listing]) => [
+            key,
+            {
+              ...listing,
+              entries: listing.entries.filter(
+                (entry) => !within(entry.path, path),
+              ),
+            },
+          ]),
+      ),
+    );
+  }
   async function load(path: string, offset = 0) {
+    if (!path || currentRoot.current !== root) return;
+    if (inFlight.current.has(path)) {
+      pending.current.add(path);
+      return;
+    }
+    inFlight.current.add(path);
+    const started = generation.current;
     setLoading((previous) => new Set(previous).add(path));
     try {
       const listing = await window.lwr.remote<Listing>("list", {
         path,
         offset,
       });
+      if (currentRoot.current !== root || obsolete(path, started)) return;
+      reported.current.delete(path);
+      if (path === root) setRootError("");
+      // Only a complete first page proves a child is gone. Paginated omissions
+      // are not deletions. In-flight responses from removed subtrees are ignored.
+      if (offset === 0 && listing.next === null) {
+        for (const expandedPath of [...expandedRef.current]) {
+          if (
+            expandedPath !== root &&
+            dirname(expandedPath) === path &&
+            !listing.entries.some(
+              (entry) => entry.directory && entry.path === expandedPath,
+            )
+          )
+            forget(expandedPath);
+        }
+      }
+      listing.entries = listing.entries.filter(
+        (entry) => !obsolete(entry.path, started),
+      );
       setListings((previous) => ({
         ...previous,
         [path]: {
@@ -61,17 +129,50 @@ export default function Explorer({
         },
       }));
     } catch (error) {
-      onError(String(error));
+      if (currentRoot.current !== root || obsolete(path, started)) return;
+      const message = String(error);
+      if (
+        /ENOENT|ENOTDIR|\[Errno (?:2|20)\]|No such file or directory|not a directory/i.test(
+          message,
+        )
+      ) {
+        forget(path);
+        if (path === root)
+          setRootError(
+            "This workspace folder is no longer available. It may have been moved or renamed. Open its new location, or refresh to retry.",
+          );
+        else {
+          const parent = dirname(path);
+          if (within(parent, root)) void load(parent);
+        }
+      } else {
+        if (path === root) setRootError(message.replace(/^Error: /, ""));
+        if (reported.current.get(path) !== message) {
+          reported.current.set(path, message);
+          onError(message);
+        }
+      }
     } finally {
+      inFlight.current.delete(path);
       setLoading((previous) => {
         const next = new Set(previous);
         next.delete(path);
         return next;
       });
+      if (
+        pending.current.delete(path) &&
+        currentRoot.current === root &&
+        (path === root || expandedRef.current.has(path))
+      )
+        void load(path);
     }
   }
   useEffect(() => {
     setListings({});
+    setRootError("");
+    invalidated.current.clear();
+    reported.current.clear();
+    expandedRef.current = new Set([root]);
     setExpanded(new Set([root]));
     if (root) void load(root);
   }, [root]);
@@ -216,7 +317,11 @@ export default function Explorer({
         data-testid="explorer-tree"
         data-ready={!!listings[root]}
       >
-        {root ? (
+        {rootError ? (
+          <p className="tree-hint" role="status">
+            {rootError}
+          </p>
+        ) : root ? (
           entries(root, 0)
         ) : (
           <p className="tree-hint">Open a folder from the File menu.</p>

@@ -24,6 +24,10 @@ and separates cached images by backend identity. Local mode needs no daemon or l
 
 The package includes `node-pty` and its native Windows ConPTY binaries. The terminal dependency loads when a shell starts.
 
+Each terminal has a stable React owner and PTY. Its imperative xterm DOM surface is reparented into the active panel/editor
+slot while the owner stays mounted, preserving scrollback and the running process. Inactive surfaces park in hidden DOM;
+resize notifications fit visible terminals without resizing hidden shells to zero. Killing a session unmounts only its owner.
+
 `electron/recent.cjs` stores the last 50 successful workspace locations in the application profile. The main process
 records the first successful root listing, deduplicates by backend/host/path, writes atomically, and broadcasts history
 changes to open windows. Listing history does not connect to SSH hosts. Empty windows and failed listings are not recorded.

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Search, ChevronRight } from "lucide-react";
 export type CommandArgs = Record<string, any>;
 export type Command = {
@@ -40,7 +41,15 @@ export function useCommands(
         if (!command) throw new Error(`Unknown command: ${id}`);
         if (command.enabled === false)
           throw new Error(`Command is unavailable: ${command.title}`);
-        return command.run(args);
+        let pending: unknown;
+        flushSync(() => {
+          pending = command.run(args);
+        });
+        const result = await pending;
+        // An awaited command must expose its committed state to the next command,
+        // including calls made by agents outside React's event loop.
+        flushSync(() => {});
+        return result;
       },
     }),
     [],

@@ -131,6 +131,25 @@ const normalize = (p) => p.replaceAll("\\", "/");
     );
     await command("terminal.setHeight", { height: 180 });
     assert.equal((await state()).terminal.height, 180);
+    const created = await page.evaluate(async () => {
+      const id = await window.owletCommands.execute("terminal.new");
+      await window.owletCommands.execute("terminal.rename", {
+        name: "Immediate command chain",
+      });
+      const snapshot = await window.owletCommands.execute("workspace.state", {
+        readOnly: true,
+      });
+      return { id, snapshot };
+    });
+    assert.equal(
+      created.snapshot.terminal.sessions.find((item) => item.id === created.id)
+        .name,
+      "Immediate command chain",
+    );
+    await command("terminal.close", { id: created.id });
+    const terminalQuestion = (await state()).confirmation;
+    if (terminalQuestion)
+      await command("confirmation.accept", { token: terminalQuestion.token });
     await page.locator(".xterm-helper-textarea").waitFor();
     await page.evaluate(() => {
       window.__commandTerminalText = "";

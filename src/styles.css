@@ -861,6 +861,151 @@ input {
   overflow: hidden;
   background: #002451;
 }
+.terminal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.terminal-content,
+.editor-terminal {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.terminal-slot {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.terminal-list {
+  width: 184px;
+  min-width: 120px;
+  max-width: 32%;
+  flex-shrink: 0;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  padding: var(--space-4);
+  background: #001c40;
+}
+.terminal-list-row {
+  display: flex;
+  height: var(--bar-height);
+}
+.terminal-list-row > [role="option"] {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  font-size: 11px;
+  gap: var(--space-4);
+}
+.terminal-list-row > [aria-selected="true"] {
+  background: #00346e;
+}
+.terminal-list-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-list-row small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.terminal-row-close {
+  opacity: 0;
+}
+.terminal-list-row:hover .terminal-row-close,
+.terminal-list-row:focus-within .terminal-row-close {
+  opacity: 1;
+}
+.terminal-choice {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  min-height: var(--bar-height);
+}
+.terminal-choice small {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* CodeMirror's native search behavior, with Owlet's compact control styling. */
+.editor-host .cm-panels {
+  border-color: var(--line);
+}
+.editor-host .cm-panels .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) 32px var(--space-8) var(--space-8);
+  font:
+    12px "Segoe UI",
+    sans-serif;
+}
+.editor-host .cm-search br {
+  display: block;
+  flex-basis: 100%;
+  height: 0;
+}
+.editor-host .cm-search .cm-textfield {
+  flex: 1 1 150px;
+  min-width: 80px;
+  max-width: 300px;
+  height: var(--control-height);
+  background: #001733;
+  color: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-8);
+  font: inherit;
+}
+.editor-host .cm-search .cm-button {
+  min-height: var(--control-height);
+  background: #00346e;
+  background-image: none;
+  color: #bbdaff;
+  border: 1px solid #404f7d;
+  border-radius: 4px;
+  padding: var(--space-2) var(--space-8);
+  font: inherit;
+  text-transform: none;
+  box-shadow: none;
+}
+.editor-host .cm-search .cm-button:hover {
+  background: #003f8e;
+  color: #fff;
+}
+.editor-host .cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 var(--space-4);
+  white-space: nowrap;
+  color: var(--muted);
+  font: inherit;
+}
+.editor-host .cm-search input[type="checkbox"] {
+  margin: 0;
+  accent-color: #bbdaff;
+}
+.editor-host .cm-panels .cm-panel.cm-search button[name="close"] {
+  right: var(--space-4);
+  top: var(--space-4);
+  width: var(--control-height);
+  height: var(--control-height);
+  font-size: 18px;
+  color: var(--muted);
+}
+.editor-host .cm-search button[name="close"]:hover {
+  background: #00346e;
+  color: #fff;
+}
 .terminal-toolbar {
   display: flex;
   align-items: center;
@@ -1196,6 +1341,90 @@ input {
     display: none;
   }
   .status-message {
+    display: none;
+  }
+}
+.diagram {
+  position: relative;
+}
+.diagram .diagram-expand {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  height: var(--control-height);
+  padding: var(--space-2) var(--space-8);
+  border: 1px solid var(--line);
+  background: #001c40;
+  color: var(--accent);
+  font:
+    11px "Segoe UI",
+    sans-serif;
+}
+.diagram .diagram-expand:hover {
+  background: #00346e;
+}
+.diagram-viewer {
+  position: fixed;
+  inset: var(--titlebar-height) 0 0;
+  display: flex;
+  flex-direction: column;
+  background: #001126;
+  z-index: 45;
+}
+.diagram-viewer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-12);
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+  background: #001c40;
+}
+.diagram-viewer-toolbar strong {
+  margin-right: auto;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diagram-viewer-toolbar button {
+  height: var(--bar-height);
+  min-width: var(--bar-height);
+  font-size: 12px;
+}
+.diagram-help {
+  color: var(--muted);
+  font-size: 11px;
+}
+.diagram-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.diagram-canvas:active {
+  cursor: grabbing;
+}
+.diagram-canvas:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.diagram-transform {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  user-select: none;
+}
+.diagram-transform svg {
+  display: block;
+  max-width: none;
+}
+@media (max-width: 1000px) {
+  .diagram-help {
     display: none;
   }
 }

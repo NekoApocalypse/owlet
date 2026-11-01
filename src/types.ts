@@ -49,6 +49,15 @@ export type TerminalEvent = {
   data?: string;
   status?: number;
 };
+export type TerminalSession = {
+  id: string;
+  name: string;
+  path: string;
+  location: "panel" | "editor";
+  restart: number;
+  status: "starting" | "running" | "exited" | "disconnected" | "error";
+  pty?: string;
+};
 declare global {
   interface Window {
     lwr: {

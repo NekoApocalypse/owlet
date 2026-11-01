@@ -30,7 +30,8 @@ Commands that require a path, number, or text offer a prompt when invoked from t
 | Source/preview/both, resize their divider, follow file links, jump to a heading, open a web link | `markdown.source`, `.preview`, `.both`, `.toggle`, `.resize`, `.heading`, `file.open`, `link.openExternal` |
 | Activate a tab/group, next/previous tab, split, move a tab, resize groups, equalize, close an empty group | `tab.activate`, `.next`, `.previous`, `group.focus`, `.next`, `.splitRight`, `.splitDown`, `.moveTab`, `.resize`, `.equalize`, `.closeEmpty` |
 | Image fit and zoom | `image.fit`, `.zoomIn`, `.zoomOut` |
-| Show/hide/focus terminal, restart, start after reconnect, resize, send text | `terminal.toggle`, `.focus`, `.restart`, `.start`, `.setHeight`, `.grow`, `.shrink`, `.sendText` |
+| Create/switch/rename/kill terminals, move into editor/panel, show/hide/focus, restart, resize, send text | `terminal.new`, `.select`, `.next`, `.previous`, `.rename`, `.close`, `.moveToEditor`, `.moveToPanel`, `.toggle`, `.focus`, `.restart`, `.start`, `.setHeight`, `.grow`, `.shrink`, `.sendText` |
+| Expand Mermaid diagrams, fit/actual size, zoom, pan, close | `diagram.open`, `.fit`, `.actualSize`, `.zoomIn`, `.zoomOut`, `.zoom`, `.pan`, `.close` |
 | Reconnect/disconnect, project color/import/reset/settings, notices, workspace inspection | `connection.*`, `project.*`, `message.dismiss`, `workspace.state` |
 | Approve or cancel a pending destructive action | `confirmation.accept`, `.cancel`; approval requires the current question's token |
 
@@ -45,8 +46,8 @@ widget interactions, not separate palette entries for each event. CodeMirror own
 keybindings; palette commands use the same editor operations. xterm input and `terminal.sendText` use the same input path.
 Drag outcomes use sizing/move commands. Form submission uses the corresponding workspace, project, or path action.
 
-Commands that change React UI state may complete before the next paint. Readiness and rendered state should be observed
-when chaining interactions. Explorer loading and shell startup are asynchronous; terminal input rejects when the terminal
+Synchronous command changes commit before the command resolves, so consecutive calls use the latest selection.
+Readiness and rendered state should still be observed for asynchronous work. Explorer loading and shell startup are asynchronous; terminal input rejects when the terminal
 has not mounted or its shell has exited. Text sent by `terminal.sendText` is literal: a carriage return executes it in the shell.
 
 ## Confirmation contract
@@ -66,3 +67,20 @@ the connection form against a real host. Existing local, SSH, layout, and appear
 `node tests/recent.cjs` checks File-menu command dispatch, recent-workspace UI, restart persistence, and local/SSH reopening.
 The native File menu sends command IDs back to the renderer registry; it does not implement a second set of UI handlers.
 `workspace.openRecent` and `.removeRecent` accept an `id` from the history list; omitting it opens a searchable picker.
+
+## Terminals and diagrams
+
+`workspace.state` includes `terminal.sessions` with stable IDs, names, locations, status, and the current PTY identifier.
+`terminal.new` returns a terminal ID. Terminal commands accept an optional `id`; without one they use the selected terminal.
+`terminal.sendText` never broadcasts to other shells. `terminal.select` without arguments opens a chooser.
+`terminal.moveToEditor` accepts a destination `group`; terminal editor tabs also support `tab.activate` and `group.moveTab`.
+`terminal.close` and `.restart` use the normal confirmation token flow for running shells. Moving terminals does not restart them.
+
+`diagram.open` accepts a zero-based `index` and optional `group` containing a rendered preview. `diagram.zoom` accepts
+`scale` (1 = 100%) or a relative `factor`, with optional canvas-pixel `x`/`y` anchor. `diagram.pan` accepts `dx`/`dy`.
+`workspace.state().diagram` through the registry reports current scale and translation. The viewer uses already-sanitized SVG;
+commands do not accept arbitrary SVG or HTML. Tests in `tests/terminal-workspaces.cjs` exercise these UI/API paths,
+shell continuity, targeted input, real SSH reconnect, diagram navigation, and Find/Replace behavior and styling.
+
+`tests/explorer-rename.cjs` verifies directory rename recovery locally and over SSH: obsolete subtree requests stop,
+unsaved buffers survive, and a missing workspace root shows an inline notice instead of repeated error toasts.
