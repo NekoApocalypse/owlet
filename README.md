@@ -1,27 +1,29 @@
 <p align="center"><img src="assets/icon.png" width="88" height="88" alt="Owlet"></p>
+<p align="center"><a href="README_CN.md">中文</a> | <strong>English</strong></p>
 
 # Owlet
 
-**A clearer view of your agents’ work.**
+Developers rarely write code by hand anymore. Agents write the code, while humans review plans, track progress, and make decisions. Yet VS Code is built for "90% writing, 10% reading", so remote connections and switching projects feel slow and heavy.
 
-Your agents write the code. You review the plan, follow the reasoning, and decide what happens next.
-Owlet gives you a familiar, VS Code-style file explorer, editor, and terminal—focused on that job.
-Open a local folder or work over SSH, with rich Markdown and fast project switching.
+**Owlet** is a fast project editor built for **90% reading, 10% writing**. In daily use, it feels 10x faster than VS Code.
 
-![Owlet showing source and rich Markdown side by side](docs/images/workspace.png)
+现在人都不怎么手写代码了——Agent 负责写，人负责看方案、盯过程、做决策。但 VS Code 是按「9 分写、1 分看」设计的，连远程切项目又慢又重。
 
-- **A project window in seconds.** Start reading while your agents keep working. Measured at **4.55 seconds** over a bandwidth-limited SSH connection; [test conditions](docs/performance.md).
-- **Markdown you can think in.** Equations, Mermaid diagrams, images, and highlighted code. Switch between source and preview, or read both side by side.
-- **Your familiar workspace.** File explorer, tabs, resizable splits, Vim mode, and a command palette. Arrange files and terminals side by side, just like in VS Code.
-- **`owlet .` and you’re there.** Change directory in the integrated terminal and open another project window, just like `code .`.
-- **Local or SSH. Same workflow.** Read files on your laptop or server. SSH uses your existing setup, with no persistent remote server to install.
-- **Recognize projects at a glance.** Give each window a Peacock-style color. Import a VS Code project color once, or choose your own.
+所以我做了一个 **「9 分看、1 分写」** 的极速项目编辑器 **Owlet**，日常交互体感比 VS Code 快 10 倍。
 
-## Getting Started
+![Owlet workspace](docs/images/workspace.png)
 
-1. **Preferred: let your agent do it.** Copy this repository’s URL into your favorite coding agent—Claude Code, Codex, Antigravity, OpenCode—and ask it to build and launch Owlet.
+- **Cold-start a project in under 10 seconds.** Opens a full project window in **4.55 seconds** over a bandwidth-limited SSH connection ([test conditions](docs/performance.md)). Run `owlet .` in the integrated terminal to switch directories and open another project window instantly, just like `code .`.
+- **Zero-bloat SSH remote.** No persistent heavy server installed on the remote host. Owlet reuses your existing SSH setup, staying responsive even on a Raspberry Pi or a bandwidth-limited jump host.
+- **Rich Markdown preview.** Native rendering for math equations, Mermaid diagrams, images, and syntax-highlighted code, with split panes for reading agent-written plans and specs.
+- **Peacock project colors.** Spot the right project at a glance across multiple agent windows, or import your existing VS Code Peacock color directly.
+- **Familiar VS Code workspace.** File explorer, tabs, split panes, movable terminals, Vim mode, and a command palette. Open files and terminals across split panes.
 
-2. **Build it yourself.** Windows x64 · Node.js 22.12+ · npm.
+## Getting started
+
+1. **Preferred: let your agent do it.** Copy this repository URL into your coding agent (Claude Code, Codex, Antigravity, or OpenCode) and ask it to build and launch Owlet.
+
+2. **Build it yourself.** Requires Windows x64, Node.js 22.12+, and npm.
 
    ```sh
    npm ci
@@ -29,16 +31,14 @@ Open a local folder or work over SSH, with rich Markdown and fast project switch
    npm run package
    ```
 
-   Open `release/Owlet/Owlet.exe`. Choose **Open Local Folder**, or click the blue remote icon at the bottom left. Both are also in the command palette (`Ctrl+Shift+P`).
+   Open `release/Owlet/Owlet.exe`. Choose **Open Local Folder** or **Connect to Remote (SSH)** from the welcome screen, status bar, or command palette (`Ctrl+Shift+P`).
 
 ## Limitations
 
-**Not yet:** macOS and Linux desktop builds, a signed installer, automatic updates, and interactive SSH password/MFA prompts.
-Today’s build runs on Windows x64; SSH hosts need Linux, Bash, Python 3, and working noninteractive authentication.
-
-**Out of scope:** Git UI, debugging, language servers, and an extension marketplace. Owlet is a fast, focused tool for viewing and editing your agents’ work, not an IDE.
-
-**Current limits:** UTF-8 text up to 4 MiB; raster images up to 16 MiB. Owlet bundles Electron, so lightweight workflow does not mean a tiny download or memory footprint.
+- **Platform support:** Currently **Windows (x64)** only. **macOS and Linux** users are welcome to hand this repository to their own coding agents, bring their own tokens, and contribute cross-platform support.
+- **Not yet supported:** Signed installers, automatic updates, and interactive SSH password or MFA prompts. SSH hosts require Linux, Bash, Python 3, and working non-interactive authentication.
+- **Out of scope:** Git UI, debugging, language servers, and an extension marketplace. Owlet is a fast, focused tool for reviewing and editing agent work, not an IDE.
+- **Current limits:** UTF-8 text up to 4 MiB and raster images up to 16 MiB. Owlet bundles Electron, so a fast workflow does not mean a tiny download or memory footprint.
 
 [Usage and configuration](docs/usage.md) · [Architecture and development](docs/development.md) · [Performance](docs/performance.md)
 
