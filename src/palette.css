@@ -1,0 +1,112 @@
+.palette-shade {
+  position: fixed;
+  inset: 0;
+  background: #03090d66;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: calc(var(--titlebar-height) + var(--space-16));
+}
+.command-palette {
+  width: min(660px, 90vw);
+  max-height: 72vh;
+  background: #001c40;
+  border: 1px solid #404f7d;
+  border-radius: 9px;
+  box-shadow: 0 18px 70px #0009;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-8);
+  min-height: 40px;
+  border-bottom: 1px solid #404f7d;
+  color: #bbdaff;
+}
+.palette-search input {
+  border: 0;
+  background: transparent;
+  padding: var(--space-4);
+  outline: none;
+  flex: 1;
+  color: #ffffff;
+  font-size: 14px;
+  min-width: 0;
+}
+.palette-search kbd {
+  font-size: 9px;
+  color: #9dadce;
+  border: 1px solid #404f7d;
+  border-radius: 3px;
+  padding: var(--space-2) var(--space-4);
+}
+.command-list {
+  overflow: auto;
+  padding: var(--space-2) var(--space-4);
+  min-height: 0;
+  flex: 1;
+}
+.command-option {
+  width: 100%;
+  justify-content: space-between;
+  text-align: left;
+  padding: var(--space-4) var(--space-8);
+  height: var(--bar-height);
+  min-height: var(--bar-height);
+  line-height: 20px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ffffff;
+}
+.command-option.highlighted {
+  background: #00346e;
+  color: #ffffff;
+}
+.command-option > span {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.command-option kbd {
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: inherit;
+  color: #9dadce;
+}
+.palette-footer {
+  padding: var(--space-4) var(--space-8);
+  min-height: var(--control-height);
+  border-top: 1px solid #404f7d;
+  display: flex;
+  justify-content: space-between;
+  color: #9dadce;
+  font-size: 10px;
+}
+.command-option:disabled {
+  opacity: 0.35;
+}
+.palette-button {
+  font-size: 10px;
+  color: #9dadce;
+  gap: var(--space-8);
+}
+.palette-button kbd {
+  font:
+    9px Consolas,
+    monospace;
+  color: #9dadce;
+}
+.no-commands {
+  padding: var(--space-16);
+  color: #9dadce;
+  font-size: 12px;
+}

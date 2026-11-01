@@ -1,0 +1,421 @@
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Menu,
+} = require("electron");
+const path = require("node:path");
+const iconPath = path.join(
+  __dirname,
+  "../assets",
+  require("../assets/icon-manifest.json").icon,
+);
+const { Connection } = require("./connection.cjs");
+const { LocalConnection } = require("./local.cjs");
+const fs = require("node:fs");
+app.setName("Owlet");
+app.setAppUserModelId("Owlet.Desktop");
+// The old environment names remain accepted for existing scripts and tests.
+for (const key of ["USER_DATA", "SSH_TARGET", "ROOT", "DEV_URL", "SSH_PROXY"])
+  if (process.env[`OWLET_${key}`])
+    process.env[`LWR_${key}`] = process.env[`OWLET_${key}`];
+if (process.env.LWR_USER_DATA)
+  app.setPath("userData", process.env.LWR_USER_DATA);
+const sessions = new Map();
+const windows = new Map();
+const terminals = new Map();
+const imageCache = new Map();
+if (process.env.LWR_TEST_METRICS === "1")
+  globalThis.__lwrMetrics = () => ({
+    ...[...sessions.values()].find((session) => session.kind === "ssh")
+      ?.metrics,
+  });
+
+function sessionFor(target) {
+  const key = target ? `ssh:${target}` : "local";
+  if (sessions.has(key)) return sessions.get(key);
+  const session = target
+    ? new Connection(target)
+    : new LocalConnection({
+        executable: process.execPath,
+        appPath: app.getAppPath(),
+        packaged: app.isPackaged,
+      });
+  sessions.set(key, session);
+  session.on("state", (state) => {
+    for (const [id, record] of windows) {
+      if (record.session !== session) continue;
+      const win = BrowserWindow.fromId(record.windowId);
+      if (win && !win.isDestroyed())
+        win.webContents.send("connection-state", state);
+    }
+    if (state.status === "disconnected")
+      for (const [id, owner] of terminals)
+        if (windows.get(owner.id)?.session === session) terminals.delete(id);
+  });
+  session.on("remote-event", (event) => {
+    if (event.event === "open")
+      openWindow(
+        event.directory ? event.path : event.cwd,
+        event.directory ? undefined : event.path,
+        session,
+      );
+    else if (event.terminal) {
+      const owner = terminals.get(event.terminal);
+      if (
+        owner &&
+        !owner.isDestroyed() &&
+        windows.get(owner.id)?.session === session
+      )
+        owner.send("terminal-event", event);
+      if (event.event === "terminal-exit") terminals.delete(event.terminal);
+    }
+  });
+  return session;
+}
+function backend(event) {
+  return windows.get(event.sender.id).session;
+}
+
+function sendAll(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows())
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+}
+function openWindow(root, file, session = sessionFor()) {
+  const win = new BrowserWindow({
+    width: 1440,
+    height: 940,
+    minWidth: 850,
+    minHeight: 600,
+    backgroundColor: "#002451",
+    icon: iconPath,
+    title: "Owlet · Workspace",
+    titleBarStyle: "hidden",
+    titleBarOverlay: { color: "#001126", symbolColor: "#ffffff", height: 32 },
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  const record = {
+    root,
+    file,
+    session,
+    windowId: win.id,
+    dirty: false,
+    confirmed: false,
+  };
+  windows.set(win.webContents.id, record);
+  if (process.platform === "win32" && app.isPackaged)
+    win.setAppDetails({
+      appId: "Owlet.Desktop",
+      appIconPath: iconPath,
+      relaunchDisplayName: "Owlet",
+      relaunchCommand: `"${process.execPath}"`,
+    });
+  win.on("page-title-updated", (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event) => event.preventDefault());
+  win.on("close", (event) => {
+    if (record.dirty && !record.confirmed) {
+      event.preventDefault();
+      dialog
+        .showMessageBox(win, {
+          type: "warning",
+          message: "Close with unsaved changes?",
+          detail: "Your unsaved edits in this window will be lost.",
+          buttons: ["Keep editing", "Discard and close"],
+          defaultId: 0,
+          cancelId: 0,
+        })
+        .then(({ response }) => {
+          if (response === 1) {
+            record.confirmed = true;
+            win.close();
+          }
+        });
+    }
+  });
+  const owner = win.webContents.id;
+  win.on("closed", () => {
+    windows.delete(owner);
+    for (const [terminal, webContents] of terminals)
+      if (webContents.id === owner) {
+        session.notify("terminal-close", { terminal });
+        terminals.delete(terminal);
+      }
+  });
+  if (process.env.LWR_DEV_URL) win.loadURL(process.env.LWR_DEV_URL);
+  else win.loadFile(path.join(__dirname, "../dist/index.html"));
+  return win;
+}
+
+function trusted(event) {
+  if (
+    !windows.has(event.sender.id) ||
+    event.senderFrame !== event.sender.mainFrame
+  )
+    throw new Error("Untrusted sender");
+}
+ipcMain.handle("bootstrap", (event) => {
+  trusted(event);
+  const { root, file, session } = windows.get(event.sender.id);
+  return { root, file, connection: session.state };
+});
+ipcMain.handle("connect", async (event) => {
+  trusted(event);
+  return backend(event).connect();
+});
+ipcMain.handle("disconnect", (event) => {
+  trusted(event);
+  if (backend(event).kind === "ssh") backend(event).close();
+});
+const methods = new Set([
+  "list",
+  "read",
+  "save",
+  "stat",
+  "stats",
+  "image",
+  "project-settings",
+  "project-color",
+  "import-peacock",
+]);
+ipcMain.handle("remote", async (event, method, args) => {
+  trusted(event);
+  const connection = backend(event);
+  if (!methods.has(method)) throw new Error("Unsupported operation");
+  if (method === "read") return connection.download(args);
+  if (method === "image") {
+    const key = JSON.stringify([connection.kind, connection.target, args]);
+    const existing = imageCache.get(key);
+    if (existing && Date.now() - existing.time < 5000) return existing.value;
+    const value = connection.download(args, true);
+    imageCache.set(key, { time: Date.now(), value });
+    while (imageCache.size > 8)
+      imageCache.delete(imageCache.keys().next().value);
+    try {
+      return await value;
+    } catch (error) {
+      imageCache.delete(key);
+      throw error;
+    }
+  }
+  return connection.request(method, args);
+});
+ipcMain.handle("open-window", async (event, root) => {
+  trusted(event);
+  const connection = backend(event);
+  const info = await connection.request("stat", { path: root });
+  if (!info.directory) throw new Error("Choose a directory");
+  openWindow(info.path, undefined, connection);
+});
+ipcMain.handle("open-local", async (event, selected) => {
+  trusted(event);
+  if (!selected) {
+    const result = await dialog.showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      { properties: ["openDirectory"], title: "Open local folder" },
+    );
+    if (result.canceled) return false;
+    selected = result.filePaths[0];
+  }
+  const session = sessionFor();
+  const info = await session.request("stat", { path: selected });
+  if (!info.directory) throw new Error("Choose a directory");
+  openWindow(info.path, undefined, session);
+  return true;
+});
+ipcMain.handle("open-ssh", async (event, target, root) => {
+  trusted(event);
+  if (root !== undefined && (typeof root !== "string" || root.includes("\0")))
+    throw new Error("Invalid remote path");
+  const session = sessionFor(target);
+  if (session.kind !== "ssh")
+    throw new Error("Enter an SSH host alias or user@host");
+  void session.connect().catch(() => {});
+  openWindow(root || undefined, undefined, session);
+});
+ipcMain.handle("terminal-start", async (event, args) => {
+  trusted(event);
+  const identifier = `${event.sender.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  terminals.set(identifier, event.sender);
+  try {
+    await backend(event).request("terminal-start", {
+      ...args,
+      terminal: identifier,
+    });
+    return identifier;
+  } catch (error) {
+    terminals.delete(identifier);
+    throw error;
+  }
+});
+ipcMain.on("terminal-message", (event, method, args) => {
+  trusted(event);
+  if (
+    !["terminal-input", "terminal-resize", "terminal-close"].includes(method) ||
+    terminals.get(args.terminal) !== event.sender
+  )
+    return;
+  backend(event).notify(method, args);
+});
+ipcMain.on("dirty", (event, dirty) => {
+  trusted(event);
+  windows.get(event.sender.id).dirty = !!dirty;
+});
+ipcMain.handle("external", (event, url) => {
+  trusted(event);
+  const parsed = new URL(url);
+  if (!["https:", "http:"].includes(parsed.protocol))
+    throw new Error("Unsupported link");
+  return shell.openExternal(parsed.href);
+});
+ipcMain.handle("close-window", (event) => {
+  trusted(event);
+  BrowserWindow.fromWebContents(event.sender)?.close();
+});
+ipcMain.handle("window-appearance", (event, appearance) => {
+  trusted(event);
+  if (
+    !appearance ||
+    !/^#[0-9a-f]{6}$/i.test(appearance.color) ||
+    !/^#[0-9a-f]{6}$/i.test(appearance.foreground) ||
+    typeof appearance.title !== "string" ||
+    appearance.title.length > 1024
+  )
+    throw new Error("Invalid window appearance");
+  const win = BrowserWindow.fromWebContents(event.sender);
+  win.setTitleBarOverlay({
+    color: appearance.color,
+    symbolColor: appearance.foreground,
+  });
+  win.setTitle(appearance.title);
+});
+ipcMain.handle("window-action", (event, action) => {
+  trusted(event);
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (action === "minimize") win.minimize();
+  else if (action === "maximize")
+    win.isMaximized() ? win.unmaximize() : win.maximize();
+  else throw new Error("Invalid window action");
+});
+ipcMain.handle("zoom", (event, direction) => {
+  trusted(event);
+  if (!["in", "out", "reset"].includes(direction))
+    throw new Error("Invalid zoom action");
+  event.sender.setZoomFactor(
+    direction === "reset"
+      ? 1
+      : Math.max(
+          0.5,
+          Math.min(
+            2,
+            event.sender.getZoomFactor() + (direction === "in" ? 0.1 : -0.1),
+          ),
+        ),
+  );
+});
+ipcMain.handle("fullscreen", (event) => {
+  trusted(event);
+  const win = BrowserWindow.fromWebContents(event.sender);
+  win.setFullScreen(!win.isFullScreen());
+});
+ipcMain.handle("reload", async (event) => {
+  trusted(event);
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const record = windows.get(event.sender.id);
+  if (record.dirty) {
+    const { response } = await dialog.showMessageBox(win, {
+      type: "warning",
+      message: "Reload with unsaved changes?",
+      detail:
+        "Reloading discards unsaved editor buffers and starts a new direct shell.",
+      buttons: ["Keep editing", "Discard and reload"],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (response !== 1) return false;
+  }
+  for (const [terminal, owner] of terminals)
+    if (owner.id === event.sender.id) {
+      backend(event).notify("terminal-close", { terminal });
+      terminals.delete(terminal);
+    }
+  record.dirty = false;
+  event.sender.reload();
+  return true;
+});
+
+function launch(argv, cwd, initial = false) {
+  const args = argv
+    .slice(app.isPackaged ? 1 : 2)
+    .filter((arg) => !arg.startsWith("--inspect"));
+  let target = initial ? process.env.LWR_SSH_TARGET : undefined;
+  let selected = initial ? process.env.LWR_ROOT : undefined;
+  const sshIndex = argv.indexOf("--ssh"),
+    localIndex = argv.indexOf("--local");
+  if (sshIndex !== -1) {
+    target = argv[sshIndex + 1];
+    if (!target) throw new Error("Usage: owlet --ssh user@host [directory]");
+    selected = argv[sshIndex + 2];
+  } else if (localIndex !== -1) {
+    target = undefined;
+    selected = argv[localIndex + 1] || cwd;
+  } else if (args[0] && !args[0].startsWith("-")) {
+    target = undefined;
+    selected = args[0];
+  }
+  const session = sessionFor(target);
+  if (session.kind === "local") {
+    const location = selected
+      ? path.resolve(cwd, selected)
+      : session.state.home;
+    const info = fs.statSync(location);
+    openWindow(
+      (info.isDirectory() ? location : path.dirname(location)).replaceAll(
+        "\\",
+        "/",
+      ),
+      info.isDirectory() ? undefined : location.replaceAll("\\", "/"),
+      session,
+    );
+  } else {
+    void session.connect().catch(() => {});
+    openWindow(selected, undefined, session);
+  }
+}
+if (!app.requestSingleInstanceLock({ argv: process.argv, cwd: process.cwd() }))
+  app.quit();
+else {
+  app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
+    try {
+      launch(process.argv, process.cwd(), true);
+    } catch (error) {
+      dialog.showErrorBox("Could not open workspace", error.message);
+      openWindow();
+    }
+  });
+  app.on("second-instance", (_, argv, cwd, additional) => {
+    try {
+      launch(additional?.argv || argv, additional?.cwd || cwd);
+    } catch (error) {
+      dialog.showErrorBox("Could not open workspace", error.message);
+    }
+  });
+  app.on("window-all-closed", () => {
+    for (const session of sessions.values()) session.close();
+    app.quit();
+  });
+  app.on("before-quit", () => {
+    if (BrowserWindow.getAllWindows().length === 0)
+      for (const session of sessions.values()) session.close();
+  });
+}

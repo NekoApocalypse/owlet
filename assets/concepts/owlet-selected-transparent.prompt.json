@@ -1,0 +1,8 @@
+{
+  "tool": "built-in image_gen",
+  "operation": "Background removal from user-selected final logo",
+  "transparent_background": true,
+  "prompt": "Edit target: the supplied owl image, which the user has selected as their final logo. BACKGROUND REMOVAL ONLY. Preserve the exact original owl artwork, shape, pose, single large golden-orange eye, slate blue and ivory feathers, beak, all colors and proportions and exact cropping. Do not redesign, simplify, reinterpret, rotate, add features or change expression. Remove only the dark charcoal BACKGROUND outside the owl silhouette and replace it with true transparent alpha. Keep charcoal pupil, dark eye outline, dark beak and dark feathers completely opaque. Preserve the owl that meets the bottom and right canvas edges; do not invent missing body parts. Output a square PNG matching the original composition. No shadow, halo or new border. The result should be the identical owl isolated on transparency.",
+  "source": "owlet-selected-original.png",
+  "output": "owlet-selected-transparent.png"
+}
