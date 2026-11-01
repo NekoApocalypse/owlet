@@ -12,7 +12,7 @@ Open a local folder or work over SSH, with rich Markdown and fast project switch
 
 - **A project window in seconds.** Start reading while your agents keep working. Measured at **4.55 seconds** over a bandwidth-limited SSH connection; [test conditions](docs/performance.md).
 - **Markdown you can think in.** Equations, Mermaid diagrams, images, and highlighted code. Switch between source and preview, or read both side by side.
-- **Your familiar workspace.** File explorer, tabs, resizable splits, Vim mode, and a command palette. Keep the plan beside the implementation.
+- **Your familiar workspace.** File explorer, tabs, resizable splits, Vim mode, and a command palette. Arrange files and terminals side by side, just like in VS Code.
 - **`owlet .` and you’re there.** Change directory in the integrated terminal and open another project window, just like `code .`.
 - **Local or SSH. Same workflow.** Read files on your laptop or server. SSH uses your existing setup, with no persistent remote server to install.
 - **Recognize projects at a glance.** Give each window a Peacock-style color. Import a VS Code project color once, or choose your own.
