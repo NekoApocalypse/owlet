@@ -30,7 +30,7 @@ Open a local folder or work over SSH, with rich Markdown and fast project switch
    npm run package
    ```
 
-   Open `release/Owlet/Owlet.exe`. Use **Open Local Folder** or **Connect over SSH** in the command palette (`Ctrl+Shift+P`).
+   Open `release/Owlet/Owlet.exe`. Choose **Open Local Folder**, or click the blue remote icon at the bottom left. Both are also in the command palette (`Ctrl+Shift+P`).
 
 ## Limitations
 

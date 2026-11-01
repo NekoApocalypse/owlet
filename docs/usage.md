@@ -5,7 +5,8 @@
 Owlet starts in your local home directory. **Workspace: Open Local Folder** opens a native folder picker.
 `Owlet.exe --local <path>` accepts a directory or a file. A file opens in its parent folder.
 
-**Workspace: Connect over SSH** accepts an OpenSSH alias or `user@host` and an optional remote directory.
+Click the blue remote icon at the bottom left, or run **Remote: Connect to Remote… (SSH)** from the command palette.
+Searching for `remote`, `Open Remote`, or `SSH` finds this command. It accepts an OpenSSH alias or `user@host` and an optional remote directory.
 Establish a noninteractive connection and trust the host key in your normal SSH client first.
 Aliases can supply ports, keys, and jump hosts. SSH workspaces require Bash and Python 3 on Linux.
 

@@ -76,16 +76,24 @@ const { execFileSync } = require("node:child_process");
   );
   if (fs.existsSync(path.join(root, "LICENSE"))) {
     // Keep the runtime's own license when adding the project's license.
-    fs.copyFileSync(path.join(destination, "LICENSE"), path.join(destination, "LICENSE.electron"));
-    fs.copyFileSync(path.join(root, "LICENSE"), path.join(destination, "LICENSE"));
+    fs.copyFileSync(
+      path.join(destination, "LICENSE"),
+      path.join(destination, "LICENSE.electron"),
+    );
+    fs.copyFileSync(
+      path.join(root, "LICENSE"),
+      path.join(destination, "LICENSE"),
+    );
     fs.copyFileSync(path.join(root, "LICENSE"), path.join(appDir, "LICENSE"));
   }
   // Keep the portable README's images, examples and public documentation usable.
   for (const relative of [
+    "AGENTS.md",
     "assets/icon.png",
     "examples",
     "docs/images",
     "docs/usage.md",
+    "docs/commands.md",
     "docs/development.md",
     "docs/spacing.md",
     "docs/performance.md",

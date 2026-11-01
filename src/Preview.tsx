@@ -165,12 +165,14 @@ export default function Preview({
   path,
   root,
   onOpen,
+  onCommand,
   refresh = 0,
 }: {
   text: string;
   path: string;
   root: string;
   onOpen(path: string): void;
+  onCommand(id: string, args?: Record<string, unknown>): void;
   refresh?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -272,15 +274,13 @@ export default function Preview({
         event.preventDefault();
         const href = link.getAttribute("href") || "";
         if (href.startsWith("#")) {
-          container.current
-            ?.querySelector(
-              `[id="${CSS.escape(decodeURIComponent(href.slice(1)))}"]`,
-            )
-            ?.scrollIntoView({ behavior: "smooth" });
+          onCommand("markdown.heading", {
+            id: decodeURIComponent(href.slice(1)),
+          });
           return;
         }
         if (/^https?:/i.test(href)) {
-          void window.lwr.external(href);
+          onCommand("link.openExternal", { url: href });
           return;
         }
         if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href))

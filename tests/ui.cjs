@@ -356,6 +356,7 @@ async function externalEdit(file, text) {
     await page.keyboard.press("Enter");
     assert.ok(
       (await page.locator(".cm-activeLine").textContent()).includes("second"),
+      "Vim /second must navigate without changing the buffer",
     );
     await page.keyboard.press("v");
     assert.ok(
@@ -475,5 +476,12 @@ async function externalEdit(file, text) {
       JSON.stringify({ results, failures: failures.length }, null, 2),
     );
     external.close();
-    if (app) await app.close().catch(() => {});
+    if (app) {
+      await app
+        .evaluate(({ BrowserWindow }) => {
+          for (const window of BrowserWindow.getAllWindows()) window.destroy();
+        })
+        .catch(() => {});
+      await app.close().catch(() => {});
+    }
   });

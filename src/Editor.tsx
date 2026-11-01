@@ -26,8 +26,16 @@ import {
 } from "@codemirror/language";
 import {
   searchKeymap,
+  search,
   highlightSelectionMatches,
   openSearchPanel,
+  findNext,
+  findPrevious,
+  replaceNext,
+  replaceAll,
+  closeSearchPanel,
+  SearchQuery,
+  setSearchQuery,
 } from "@codemirror/search";
 import { markdown } from "@codemirror/lang-markdown";
 import { javascript } from "@codemirror/lang-javascript";
@@ -67,10 +75,37 @@ const editorCache = new Map<
 >();
 let lastFocused: EditorView | undefined;
 export function editorAction(
-  action: "find" | "undo" | "redo" | "selectAll" | "focus",
+  action:
+    | "find"
+    | "findNext"
+    | "findPrevious"
+    | "replaceNext"
+    | "replaceAll"
+    | "closeFind"
+    | "undo"
+    | "redo"
+    | "selectAll"
+    | "focus",
+  args: {
+    search?: string;
+    replace?: string;
+    caseSensitive?: boolean;
+    regexp?: boolean;
+  } = {},
 ) {
   if (!lastFocused) return false;
   lastFocused.focus();
+  if (args.search !== undefined)
+    lastFocused.dispatch({
+      effects: setSearchQuery.of(
+        new SearchQuery({ ...args, search: args.search }),
+      ),
+    });
+  if (action === "findNext") return findNext(lastFocused);
+  if (action === "findPrevious") return findPrevious(lastFocused);
+  if (action === "replaceNext") return replaceNext(lastFocused);
+  if (action === "replaceAll") return replaceAll(lastFocused);
+  if (action === "closeFind") return closeSearchPanel(lastFocused);
   return action === "find"
     ? openSearchPanel(lastFocused)
     : action === "undo"
@@ -176,6 +211,8 @@ export default function Editor({
       indentOnInput(),
       highlightSelectionMatches(),
       vimCompartment.current.of(vimMode ? vim({ status: true }) : []),
+      // Vim creates view.cm before the shared panel plugin initializes.
+      search(),
       Prec.highest(
         keymap.of([
           {

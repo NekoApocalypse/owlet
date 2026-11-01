@@ -23,6 +23,7 @@ function copy(relative) {
 }
 for (const entry of [
   "README.md",
+  "AGENTS.md",
   ".gitignore",
   "package.json",
   "package-lock.json",
@@ -35,6 +36,7 @@ for (const entry of [
   "examples",
   "tests",
   "docs/usage.md",
+  "docs/commands.md",
   "docs/development.md",
   "docs/spacing.md",
   "docs/performance.md",

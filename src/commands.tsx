@@ -4,6 +4,7 @@ export type CommandArgs = Record<string, any>;
 export type Command = {
   id: string;
   title: string;
+  keywords?: string[];
   shortcut?: string;
   enabled?: boolean;
   parameters?: Record<string, string>;
@@ -80,7 +81,13 @@ export default function CommandPalette({
   const [query, setQuery] = useState(""),
     [selected, setSelected] = useState(0);
   const results = commands
-    .map((command) => ({ command, score: score(command.title, query) }))
+    .map((command) => ({
+      command,
+      score: Math.max(
+        score(command.title, query),
+        ...(command.keywords || []).map((keyword) => score(keyword, query)),
+      ),
+    }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
   const list = useRef<HTMLDivElement>(null);

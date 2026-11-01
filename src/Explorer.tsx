@@ -29,6 +29,7 @@ export default function Explorer({
   onFolder,
   onRefresh,
   onError,
+  onCommand,
 }: {
   root: string;
   selected?: string;
@@ -37,6 +38,7 @@ export default function Explorer({
   onFolder(): void;
   onRefresh(): void;
   onError(message: string): void;
+  onCommand(id: string, args?: Record<string, unknown>): void;
 }) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -81,8 +83,23 @@ export default function Explorer({
   useEffect(() => {
     const action = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (detail.action === "hidden") setHidden((value) => !value);
+      if (detail.action === "hidden")
+        setHidden((value) =>
+          typeof detail.visible === "boolean" ? detail.visible : !value,
+        );
       if (detail.action === "collapse") setExpanded(new Set([root]));
+      if (detail.action === "collapseFolder")
+        setExpanded((previous) => {
+          const next = new Set(previous);
+          next.delete(detail.path);
+          return next;
+        });
+      if (detail.action === "toggleFolder") toggle(detail.path);
+      if (detail.action === "loadMore") {
+        const next = listings[detail.path]?.next;
+        if (next != null && !loading.has(detail.path))
+          void load(detail.path, next);
+      }
       if (detail.action === "expand" && detail.path) {
         setExpanded((previous) => new Set(previous).add(detail.path));
         void load(detail.path);
@@ -90,7 +107,7 @@ export default function Explorer({
     };
     window.addEventListener("lwr-explorer", action);
     return () => window.removeEventListener("lwr-explorer", action);
-  }, [root]);
+  }, [root, listings, expanded, loading]);
   const toggle = (path: string) => {
     const opened = expanded.has(path);
     setExpanded((previous) => {
@@ -126,7 +143,9 @@ export default function Explorer({
                 }}
                 title={entry.path}
                 onClick={() =>
-                  entry.directory ? toggle(entry.path) : onOpen(entry.path)
+                  entry.directory
+                    ? onCommand("explorer.toggleFolder", { path: entry.path })
+                    : onOpen(entry.path)
                 }
               >
                 {entry.directory ? (
@@ -155,7 +174,8 @@ export default function Explorer({
         {listing.next !== null && (
           <button
             className="tree-more"
-            onClick={() => load(path, listing.next!)}
+            disabled={loading.has(path)}
+            onClick={() => onCommand("explorer.loadMore", { path })}
           >
             Load next 100 entries
           </button>
@@ -206,7 +226,9 @@ export default function Explorer({
         <input
           type="checkbox"
           checked={hidden}
-          onChange={(event) => setHidden(event.target.checked)}
+          onChange={(event) =>
+            onCommand("explorer.hidden", { visible: event.target.checked })
+          }
         />{" "}
         Show hidden files
       </label>

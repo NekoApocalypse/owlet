@@ -38,6 +38,7 @@ await window.owletCommands.execute('workspace.state', { readOnly: true })
 ```
 
 This is an in-process interface, not a network endpoint. `window.lwrCommands` is a legacy alias.
+See the [UI-to-command coverage audit](commands.md) and [agent development rules](../AGENTS.md).
 Unavailable commands reject execution. Conflict resolution requires confirmation and the compared revision;
 stale confirmations cannot overwrite a newer version. Markdown cannot call these APIs.
 

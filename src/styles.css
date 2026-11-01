@@ -31,6 +31,18 @@ button,
 input {
   font: inherit;
 }
+.modal textarea {
+  width: 100%;
+  resize: vertical;
+  background: #001733;
+  color: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: var(--space-8);
+  font:
+    12px/1.5 Consolas,
+    monospace;
+}
 button {
   border: 0;
   background: transparent;
@@ -890,7 +902,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-12);
+  padding: 0 var(--space-12) 0 0;
   color: var(--project-foreground, #fff);
   font-size: 10px;
   gap: var(--space-12);
@@ -956,6 +968,19 @@ input {
   padding: var(--space-2) var(--space-8);
   border-radius: 2px;
   white-space: nowrap;
+}
+.statusbar .remote-launch {
+  width: 32px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border-radius: 0;
+  background: #0078d4;
+  color: #fff;
+}
+.statusbar .remote-launch:hover {
+  background: #1689e5;
+  color: #fff;
 }
 .connection-status,
 .status-message {

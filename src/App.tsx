@@ -17,6 +17,7 @@ import {
   RefreshCw,
   FolderOpen,
   ChevronRight,
+  ChevronsLeftRight,
   BookOpen,
   Code2,
   PanelTop,
@@ -56,6 +57,7 @@ const owletLogo = new URL("../assets/icon.png", import.meta.url).href;
 let nextGroup = 2,
   nextSplit = 1;
 type Prompt = {
+  token?: string;
   title: string;
   detail: string;
   confirm: string;
@@ -116,22 +118,31 @@ function Split({
 function SourcePreview({
   first,
   second,
+  ratio,
+  onResize,
 }: {
   first: ReactNode;
   second: ReactNode;
+  ratio: number;
+  onResize(value: number): void;
 }) {
-  const [ratio, setRatio] = useState(0.5);
   return (
     <Split
       axis="row"
       ratio={ratio}
-      onResize={setRatio}
+      onResize={onResize}
       first={first}
       second={second}
     />
   );
 }
-function ImageViewer({ document }: { document: Document }) {
+function ImageViewer({
+  document,
+  onCommand,
+}: {
+  document: Document;
+  onCommand(id: string, args?: Record<string, unknown>): void;
+}) {
   const [zoom, setZoom] = useState<number | null>(null);
   useEffect(() => {
     const action = (event: Event) => {
@@ -151,21 +162,19 @@ function ImageViewer({ document }: { document: Document }) {
   return (
     <div className="image-viewer">
       <div className="image-controls">
-        <button onClick={() => setZoom(null)}>
+        <button onClick={() => onCommand("image.fit", { path: document.path })}>
           <Maximize size={14} /> Fit
         </button>
         <button
           aria-label="Zoom out"
-          onClick={() =>
-            setZoom((previous) => Math.max(0.1, (previous || 1) - 0.25))
-          }
+          onClick={() => onCommand("image.zoomOut", { path: document.path })}
         >
           <Minus size={14} />
         </button>
         <span>{zoom ? `${Math.round(zoom * 100)}%` : "Fit"}</span>
         <button
           aria-label="Zoom in"
-          onClick={() => setZoom((previous) => (previous || 1) + 0.25)}
+          onClick={() => onCommand("image.zoomIn", { path: document.path })}
         >
           <Plus size={14} />
         </button>
@@ -196,6 +205,9 @@ export default function App() {
   const [viewModes, setViewModes] = useState<Record<string, Document["mode"]>>(
     {},
   );
+  const [previewRatios, setPreviewRatios] = useState<Record<string, number>>(
+    {},
+  );
   const [layout, setLayout] = useState<Layout>({
     kind: "group",
     group: { id: 1, tabs: [] },
@@ -212,7 +224,9 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
-  const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const [prompt, updatePrompt] = useState<Prompt | null>(null);
+  const setPrompt = (value: Prompt | null) =>
+    updatePrompt(value ? { ...value, token: crypto.randomUUID() } : null);
   const [folderInput, setFolderInput] = useState<string | null>(null);
   const [sshInput, setSSHInput] = useState<{
     target: string;
@@ -224,6 +238,7 @@ export default function App() {
   const [pathPrompt, setPathPrompt] = useState<{
     title: string;
     value: string;
+    multiline?: boolean;
     action(path: string): unknown;
   } | null>(null);
   const docsRef = useRef(documents),
@@ -570,7 +585,12 @@ export default function App() {
       },
       {
         id: "workspace.openSSH",
-        title: "Workspace: Connect over SSH…",
+        title: "Remote: Connect to Remote… (SSH)",
+        keywords: ["Open Remote", "Connect over SSH"],
+        parameters: {
+          target: "SSH host alias or user@host; omit to open connection dialog",
+          path: "Optional remote directory",
+        },
         run: (args) =>
           args.target
             ? window.lwr.openSSH(args.target, args.path)
@@ -640,11 +660,54 @@ export default function App() {
       {
         id: "explorer.hidden",
         title: "Explorer: Toggle Hidden Files",
-        run: () =>
+        run: (args) =>
           window.dispatchEvent(
-            new CustomEvent("lwr-explorer", { detail: { action: "hidden" } }),
+            new CustomEvent("lwr-explorer", {
+              detail: { action: "hidden", visible: args.visible },
+            }),
           ),
       },
+      {
+        id: "explorer.setWidth",
+        title: "Explorer: Set Width…",
+        parameters: { width: "Width in pixels, from 160 to 500" },
+        run: (args) => {
+          const apply = (value: number) => {
+            if (!Number.isFinite(value))
+              throw new Error("Enter a numeric width");
+            setSidebarWidth(Math.max(160, Math.min(500, value)));
+          };
+          return args.width === undefined
+            ? setPathPrompt({
+                title: "Explorer width (160–500 px)",
+                value: String(sidebarWidth),
+                action: (value) => apply(Number(value)),
+              })
+            : apply(args.width);
+        },
+      },
+      ...(["toggleFolder", "collapseFolder", "loadMore"] as const).map(
+        (action) => ({
+          id: `explorer.${action}`,
+          title: `Explorer: ${{ toggleFolder: "Toggle Folder", collapseFolder: "Collapse Folder", loadMore: "Load Next 100 Entries" }[action]}…`,
+          parameters: {
+            path: "Absolute directory path; omitted opens a prompt",
+          },
+          run: (args: Record<string, any>) => {
+            const apply = (path: string) =>
+              window.dispatchEvent(
+                new CustomEvent("lwr-explorer", { detail: { action, path } }),
+              );
+            return args.path
+              ? apply(args.path)
+              : setPathPrompt({
+                  title: "Folder path",
+                  value: root,
+                  action: apply,
+                });
+          },
+        }),
+      ),
       {
         id: "explorer.collapse",
         title: "Explorer: Collapse All Folders",
@@ -742,7 +805,7 @@ export default function App() {
         id: "file.compare",
         title: "File: Compare with Changed File",
         enabled: !!current?.conflict,
-        run: () => setComparison(current!.path),
+        run: (args) => setComparison(args.path || current!.path),
       },
       {
         id: "file.copyPath",
@@ -784,24 +847,161 @@ export default function App() {
         title: "Editor: Toggle Vim Mode",
         run: () => setVimMode((value) => !value),
       },
-      ...(["find", "undo", "redo", "selectAll", "focus"] as const).map(
-        (action) => ({
-          id: `editor.${action}`,
-          title: `Editor: ${{ find: "Find in File", undo: "Undo", redo: "Redo", selectAll: "Select All", focus: "Focus Source Editor" }[action]}`,
-          enabled: !!current && !current.image,
-          run: () => {
-            if (current?.mode === "preview") setMode(current.path, "source");
+      {
+        id: "file.inspect",
+        title: "File: Copy Open Buffer State",
+        enabled: !!current,
+        parameters: {
+          path: "Optional open file path",
+          readOnly: "true returns the buffer state without copying",
+        },
+        run: (args) => {
+          const doc = documents[args.path || current!.path];
+          if (!doc) throw new Error("File is not open");
+          const result = {
+            path: doc.path,
+            text: doc.text,
+            savedText: doc.saved,
+            revision: doc.revision,
+            dirty: doc.text !== doc.saved,
+            image: !!doc.image,
+            conflict: doc.conflict,
+          };
+          if (!args.readOnly)
+            void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+          return result;
+        },
+      },
+      {
+        id: "editor.setText",
+        title: "Editor: Replace Buffer Text…",
+        enabled: !!current && !current.image,
+        parameters: {
+          path: "Optional open file path",
+          text: "New unsaved buffer text; omit for a multiline editor",
+        },
+        run: (args) => {
+          const doc = documents[args.path || current!.path];
+          if (!doc || doc.image) throw new Error("Choose an open text file");
+          const apply = (text: string) => {
+            if (typeof text !== "string")
+              throw new Error("Text must be a string");
+            patch(doc.path, { text });
+          };
+          return args.text === undefined
+            ? setPathPrompt({
+                title: "Replace buffer text (not saved)",
+                value: doc.text,
+                multiline: true,
+                action: apply,
+              })
+            : apply(args.text);
+        },
+      },
+      {
+        id: "markdown.resize",
+        title: "Markdown: Set Source / Preview Split…",
+        enabled: !!current && isMarkdown(current.path),
+        parameters: {
+          group: "Optional tab group ID",
+          path: "Optional Markdown path",
+          ratio: "Source fraction, 0.08 to 0.92; omit for a percentage prompt",
+        },
+        run: (args) => {
+          const group = args.group ?? currentGroup.id,
+            path = args.path || current!.path;
+          const apply = (ratio: number) => {
+            if (!Number.isFinite(ratio))
+              throw new Error("Enter a numeric split size");
+            setMode(path, "both", group);
+            setPreviewRatios((previous) => ({
+              ...previous,
+              [`${group}:${path}`]: Math.max(0.08, Math.min(0.92, ratio)),
+            }));
+          };
+          return args.ratio === undefined
+            ? setPathPrompt({
+                title: "Source pane percentage (8–92)",
+                value: "50",
+                action: (value) => apply(Number(value) / 100),
+              })
+            : apply(args.ratio);
+        },
+      },
+      {
+        id: "link.openExternal",
+        title: "Link: Open in Browser…",
+        parameters: { url: "HTTP or HTTPS URL; omit to enter a URL" },
+        run: (args) =>
+          args.url
+            ? window.lwr.external(args.url)
+            : setPathPrompt({
+                title: "Open URL in browser",
+                value: "https://",
+                action: (url) => window.lwr.external(url),
+              }),
+      },
+      {
+        id: "markdown.heading",
+        title: "Markdown: Go to Heading…",
+        enabled: !!current && isMarkdown(current.path),
+        parameters: {
+          id: "Rendered heading ID",
+          group: "Optional tab group ID",
+        },
+        run: (args) => {
+          const apply = (id: string) => {
+            const element = document.querySelector(
+              `[data-group="${args.group ?? currentGroup.id}"] .markdown-preview [id="${CSS.escape(id)}"]`,
+            );
+            if (!element)
+              throw new Error(
+                "Heading is not visible. Open the preview and check the heading ID.",
+              );
+            element.scrollIntoView({ behavior: "smooth" });
+          };
+          return args.id
+            ? apply(args.id)
+            : setPathPrompt({ title: "Heading ID", value: "", action: apply });
+        },
+      },
+      ...(
+        [
+          "find",
+          "findNext",
+          "findPrevious",
+          "replaceNext",
+          "replaceAll",
+          "closeFind",
+          "undo",
+          "redo",
+          "selectAll",
+          "focus",
+        ] as const
+      ).map((action) => ({
+        id: `editor.${action}`,
+        title: `Editor: ${{ find: "Find in File", findNext: "Find Next", findPrevious: "Find Previous", replaceNext: "Replace Next Match", replaceAll: "Replace All Matches", closeFind: "Close Find", undo: "Undo", redo: "Redo", selectAll: "Select All", focus: "Focus Source Editor" }[action]}`,
+        enabled: !!current && !current.image,
+        parameters: {
+          search: "Optional search string",
+          replace: "Optional replacement",
+          caseSensitive: "Optional boolean",
+          regexp: "Optional boolean",
+        },
+        run: (args: Record<string, any>) => {
+          if (current?.mode === "preview") setMode(current.path, "source");
+          return new Promise((resolve) =>
             setTimeout(() => {
               document
                 .querySelector<HTMLElement>(
                   `[data-group="${currentGroup.id}"] .cm-content`,
                 )
                 ?.focus();
-              editorAction(action);
-            }, 50);
-          },
-        }),
-      ),
+              resolve(editorAction(action, args));
+            }, 50),
+          );
+        },
+      })),
       ...(["source", "preview", "both"] as const).map((mode) => ({
         id: `markdown.${mode}`,
         title: `Markdown: ${{ source: "Show Raw Source", preview: "Show Preview", both: "Show Source and Preview" }[mode]}`,
@@ -853,6 +1053,54 @@ export default function App() {
                 all.length
             ].id,
           );
+        },
+      },
+      {
+        id: "group.focus",
+        title: "Group: Focus Group by ID…",
+        parameters: { group: "Numeric group ID from workspace.state" },
+        run: (args) => {
+          const apply = (group: number) => {
+            if (!groups(layoutRef.current).some((item) => item.id === group))
+              throw new Error("Unknown group ID");
+            setActiveGroup(group);
+          };
+          return args.group === undefined
+            ? setPathPrompt({
+                title: "Group ID",
+                value: String(currentGroup.id),
+                action: (value) => apply(Number(value)),
+              })
+            : apply(args.group);
+        },
+      },
+      {
+        id: "tab.activate",
+        title: "Tab: Activate Open File…",
+        parameters: { path: "Open file path", group: "Optional group ID" },
+        enabled: Object.keys(documents).length > 0,
+        run: (args) => {
+          const apply = (path: string) => {
+            const group =
+              args.group === undefined
+                ? groups(layoutRef.current).find((item) =>
+                    item.tabs.includes(path),
+                  )
+                : groups(layoutRef.current).find(
+                    (item) =>
+                      item.id === args.group && item.tabs.includes(path),
+                  );
+            if (!group)
+              throw new Error("File is not open in the requested group");
+            activate(path, group.id);
+          };
+          return args.path
+            ? apply(args.path)
+            : setPathPrompt({
+                title: "Open tab path",
+                value: current?.path || "",
+                action: apply,
+              });
         },
       },
       {
@@ -965,6 +1213,21 @@ export default function App() {
             vimMode,
             layout,
             viewModes,
+            activeGroup,
+            previewRatios,
+            confirmation: prompt
+              ? {
+                  title: prompt.title,
+                  detail: prompt.detail,
+                  token: prompt.token,
+                }
+              : null,
+            sidebar: { visible: sidebar, width: sidebarWidth },
+            terminal: {
+              visible: terminalVisible,
+              height: terminalHeight,
+              needsRestart: terminalNeedsRestart,
+            },
             documents: Object.values(documents).map((doc) => ({
               path: doc.path,
               dirty: doc.text !== doc.saved,
@@ -986,11 +1249,45 @@ export default function App() {
         run: () => setMessage(""),
       },
       {
+        id: "confirmation.accept",
+        title: "Confirmation: Review Pending Action…",
+        enabled: !!prompt,
+        parameters: {
+          token:
+            "Current confirmation token from workspace.state; omission returns the pending question without approving",
+        },
+        run: (args) => {
+          if (!prompt) throw new Error("No pending confirmation");
+          if (args.token === undefined)
+            return {
+              title: prompt.title,
+              detail: prompt.detail,
+              token: prompt.token,
+            };
+          if (args.token !== prompt.token)
+            throw new Error("Confirmation changed; review it again");
+          const action = prompt.action;
+          setPrompt(null);
+          return action();
+        },
+      },
+      {
+        id: "confirmation.cancel",
+        title: "Confirmation: Cancel Pending Action",
+        enabled: !!prompt,
+        run: () => setPrompt(null),
+      },
+      {
         id: "group.closeEmpty",
         title: "Group: Close Active Empty Group",
         enabled: currentGroup.tabs.length === 0 && groups(layout).length > 1,
-        run: () => {
-          const next = removeGroup(layout, currentGroup.id)!;
+        run: (args) => {
+          const group = groups(layout).find(
+            (item) => item.id === (args.group ?? currentGroup.id),
+          );
+          if (!group || group.tabs.length || groups(layout).length === 1)
+            throw new Error("Choose an empty group; keep at least one group");
+          const next = removeGroup(layout, group.id)!;
           setLayout(next);
           setActiveGroup(groups(next)[0].id);
         },
@@ -999,7 +1296,10 @@ export default function App() {
         id: "terminal.toggle",
         title: "Terminal: Toggle Visibility",
         shortcut: "Ctrl+`",
-        run: () => setTerminalVisible((value) => !value),
+        run: (args) =>
+          setTerminalVisible((value) =>
+            typeof args.visible === "boolean" ? args.visible : !value,
+          ),
       },
       {
         id: "terminal.focus",
@@ -1033,6 +1333,70 @@ export default function App() {
           }),
       },
       {
+        id: "terminal.start",
+        title: "Terminal: Start Shell After Reconnect",
+        enabled: connected && terminalNeedsRestart,
+        run: () => {
+          setTerminalNeedsRestart(false);
+          setTerminalRestart((value) => value + 1);
+        },
+      },
+      {
+        id: "terminal.setHeight",
+        title: "Terminal: Set Height…",
+        parameters: {
+          height: "Panel height in pixels; constrained to available workspace",
+        },
+        run: (args) => {
+          const apply = (height: number) => {
+            if (!Number.isFinite(height))
+              throw new Error("Enter a numeric height");
+            const available =
+              document.querySelector(".workbench")?.clientHeight || innerHeight;
+            setTerminalHeight(
+              Math.max(100, Math.min(available * 0.65 - 4, height)),
+            );
+          };
+          return args.height === undefined
+            ? setPathPrompt({
+                title: "Terminal height (px)",
+                value: String(terminalHeight),
+                action: (value) => apply(Number(value)),
+              })
+            : apply(args.height);
+        },
+      },
+      {
+        id: "terminal.sendText",
+        title: "Terminal: Send Text…",
+        enabled: connected && !terminalNeedsRestart,
+        parameters: {
+          text: "Literal terminal input; include a carriage return only when execution is intended",
+        },
+        run: (args) => {
+          const apply = (text: string) => {
+            if (typeof text !== "string")
+              throw new Error("Terminal input must be text");
+            setTerminalVisible(true);
+            const detail = { text, accepted: false };
+            window.dispatchEvent(
+              new CustomEvent("owlet-terminal-input", { detail }),
+            );
+            if (!detail.accepted)
+              throw new Error(
+                "The terminal is not ready; wait for its prompt or restart the shell",
+              );
+          };
+          return args.text === undefined
+            ? setPathPrompt({
+                title: "Send terminal text (without Enter)",
+                value: "",
+                action: apply,
+              })
+            : apply(args.text);
+        },
+      },
+      {
         id: "terminal.grow",
         title: "Terminal: Increase Height",
         run: () =>
@@ -1049,10 +1413,10 @@ export default function App() {
         id: "image.fit",
         title: "Image: Fit to View",
         enabled: !!current?.image,
-        run: () =>
+        run: (args) =>
           window.dispatchEvent(
             new CustomEvent("lwr-image", {
-              detail: { path: current!.path, action: "fit" },
+              detail: { path: args.path || current!.path, action: "fit" },
             }),
           ),
       },
@@ -1060,10 +1424,10 @@ export default function App() {
         id: "image.zoomIn",
         title: "Image: Zoom In",
         enabled: !!current?.image,
-        run: () =>
+        run: (args) =>
           window.dispatchEvent(
             new CustomEvent("lwr-image", {
-              detail: { path: current!.path, action: "in" },
+              detail: { path: args.path || current!.path, action: "in" },
             }),
           ),
       },
@@ -1071,10 +1435,10 @@ export default function App() {
         id: "image.zoomOut",
         title: "Image: Zoom Out",
         enabled: !!current?.image,
-        run: () =>
+        run: (args) =>
           window.dispatchEvent(
             new CustomEvent("lwr-image", {
-              detail: { path: current!.path, action: "out" },
+              detail: { path: args.path || current!.path, action: "out" },
             }),
           ),
       },
@@ -1260,7 +1624,7 @@ export default function App() {
       <section
         className={`editor-group ${activeGroup === group.id ? "active-group" : ""}`}
         data-group={group.id}
-        onPointerDown={() => setActiveGroup(group.id)}
+        onPointerDown={() => execute("group.focus", { group: group.id })}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
@@ -1268,7 +1632,7 @@ export default function App() {
             const { path, source } = JSON.parse(
               event.dataTransfer.getData("application/lwr-tab"),
             );
-            moveTab(path, source, group.id);
+            execute("group.moveTab", { path, source, destination: group.id });
           } catch {}
         }}
       >
@@ -1291,7 +1655,9 @@ export default function App() {
                       JSON.stringify({ path, source: group.id }),
                     );
                   }}
-                  onClick={() => activate(path, group.id)}
+                  onClick={() =>
+                    execute("tab.activate", { path, group: group.id })
+                  }
                 >
                   <FileIcon path={path} />
                   <span>{basename(path)}</span>
@@ -1308,7 +1674,7 @@ export default function App() {
                     aria-label={`Close ${basename(path)}`}
                     onClick={(event) => {
                       event.stopPropagation();
-                      closeFile(path, group.id);
+                      execute("file.close", { path, group: group.id });
                     }}
                   >
                     <X size={12} />
@@ -1336,11 +1702,7 @@ export default function App() {
               <button
                 title="Close empty group"
                 aria-label="Close empty group"
-                onClick={() => {
-                  const next = removeGroup(layout, group.id)!;
-                  setLayout(next);
-                  setActiveGroup(groups(next)[0].id);
-                }}
+                onClick={() => execute("group.closeEmpty", { group: group.id })}
               >
                 <X size={14} />
               </button>
@@ -1371,7 +1733,10 @@ export default function App() {
                               : "Show preview"
                         }
                         onClick={() =>
-                          execute(`markdown.${mode}`, { path: doc.path })
+                          execute(`markdown.${mode}`, {
+                            path: doc.path,
+                            group: group.id,
+                          })
                         }
                       >
                         {mode === "source" ? (
@@ -1411,8 +1776,12 @@ export default function App() {
             {doc.conflict && (
               <div className="conflict-banner">
                 <AlertTriangle size={14} />
-                <span>Changed on the server. Your edits are preserved.</span>
-                <button onClick={() => setComparison(doc.path)}>Compare</button>
+                <span>The saved file changed. Your edits are preserved.</span>
+                <button
+                  onClick={() => execute("file.compare", { path: doc.path })}
+                >
+                  Compare
+                </button>
               </div>
             )}
             {doc.missing && (
@@ -1422,9 +1791,17 @@ export default function App() {
             )}
             <div className="document-body">
               {doc.image ? (
-                <ImageViewer document={doc} />
+                <ImageViewer document={doc} onCommand={execute} />
               ) : doc.mode === "both" && isMarkdown(doc.path) ? (
                 <SourcePreview
+                  ratio={previewRatios[`${group.id}:${doc.path}`] ?? 0.5}
+                  onResize={(ratio) =>
+                    execute("markdown.resize", {
+                      ratio,
+                      path: doc.path,
+                      group: group.id,
+                    })
+                  }
                   first={
                     <Editor
                       cacheKey={group.id + ":" + doc.path}
@@ -1455,7 +1832,12 @@ export default function App() {
                         text={doc.text}
                         path={doc.path}
                         root={root}
-                        onOpen={(path) => openFile(path, group.id)}
+                        onOpen={(path) =>
+                          execute("file.open", { path, group: group.id })
+                        }
+                        onCommand={(id, args) =>
+                          execute(id, { ...args, group: group.id })
+                        }
                         refresh={refresh}
                       />
                     </Suspense>
@@ -1469,7 +1851,12 @@ export default function App() {
                     text={doc.text}
                     path={doc.path}
                     root={root}
-                    onOpen={(path) => openFile(path, group.id)}
+                    onOpen={(path) =>
+                      execute("file.open", { path, group: group.id })
+                    }
+                    onCommand={(id, args) =>
+                      execute(id, { ...args, group: group.id })
+                    }
                     refresh={refresh}
                   />
                 </Suspense>
@@ -1531,7 +1918,7 @@ export default function App() {
               }
             >
               {local ? <Wifi size={15} /> : <FolderOpen size={15} />}
-              {local ? "Connect over SSH" : "Open a local folder"}
+              {local ? "Connect to Remote" : "Open a local folder"}
             </button>
           </div>
         )}
@@ -1546,9 +1933,7 @@ export default function App() {
         key={node.id}
         axis={node.axis}
         ratio={node.ratio}
-        onResize={(ratio) =>
-          setLayout((previous) => resizeSplit(previous, node.id, ratio))
-        }
+        onResize={(ratio) => execute("group.resize", { id: node.id, ratio })}
         first={renderLayout(node.first)}
         second={renderLayout(node.second)}
       />
@@ -1610,9 +1995,15 @@ export default function App() {
         </div>
       </header>
       <main className="workspace">
-        {sidebar && (
+        {
           <>
-            <div className="sidebar-wrap" style={{ width: sidebarWidth }}>
+            <div
+              className="sidebar-wrap"
+              style={{
+                width: sidebarWidth,
+                display: sidebar ? undefined : "none",
+              }}
+            >
               <Explorer
                 root={root}
                 selected={current?.path}
@@ -1621,10 +2012,12 @@ export default function App() {
                 onFolder={() => execute("window.openFolder")}
                 onRefresh={() => execute("explorer.refresh")}
                 onError={report}
+                onCommand={execute}
               />
             </div>
             <div
               className="sidebar-handle"
+              style={{ display: sidebar ? undefined : "none" }}
               role="separator"
               aria-label="Resize Explorer"
               onPointerDown={(event) =>
@@ -1632,14 +2025,14 @@ export default function App() {
               }
               onPointerMove={(event) => {
                 if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  setSidebarWidth(Math.max(160, Math.min(500, event.clientX)));
+                  execute("explorer.setWidth", { width: event.clientX });
               }}
               onPointerUp={(event) =>
                 event.currentTarget.releasePointerCapture(event.pointerId)
               }
             />
           </>
-        )}
+        }
         <div className="workbench">
           <div className="editor-area">{renderLayout(layout)}</div>
           <div
@@ -1658,21 +2051,13 @@ export default function App() {
               }
               onPointerMove={(event) => {
                 if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  setTerminalHeight(
-                    Math.max(
-                      100,
-                      Math.min(
-                        event.currentTarget.parentElement!.parentElement!
-                          .clientHeight *
-                          0.65 -
-                          4,
-                        event.currentTarget.parentElement!.parentElement!.getBoundingClientRect()
-                          .bottom -
-                          event.clientY -
-                          4,
-                      ),
-                    ),
-                  );
+                  execute("terminal.setHeight", {
+                    height:
+                      event.currentTarget.parentElement!.parentElement!.getBoundingClientRect()
+                        .bottom -
+                      event.clientY -
+                      4,
+                  });
               }}
               onPointerUp={(event) =>
                 event.currentTarget.releasePointerCapture(event.pointerId)
@@ -1695,25 +2080,16 @@ export default function App() {
                   <button
                     title="Restart terminal"
                     aria-label="Restart terminal"
-                    onClick={() =>
-                      setPrompt({
-                        title: "Start a new shell?",
-                        detail:
-                          "This replaces the current direct shell. Processes in your existing multiplexer remain managed by that multiplexer.",
-                        confirm: "Restart terminal",
-                        action: () => {
-                          setTerminalNeedsRestart(false);
-                          setTerminalRestart((value) => value + 1);
-                        },
-                      })
-                    }
+                    onClick={() => execute("terminal.restart")}
                   >
                     <RefreshCw size={13} />
                   </button>
                   <button
                     title="Hide terminal"
                     aria-label="Hide terminal"
-                    onClick={() => setTerminalVisible(false)}
+                    onClick={() =>
+                      execute("terminal.toggle", { visible: false })
+                    }
                   >
                     <X size={14} />
                   </button>
@@ -1737,12 +2113,7 @@ export default function App() {
                   ) : (
                     <>
                       <span>Your old shell ended when SSH disconnected.</span>
-                      <button
-                        onClick={() => {
-                          setTerminalNeedsRestart(false);
-                          setTerminalRestart((value) => value + 1);
-                        }}
-                      >
+                      <button onClick={() => execute("terminal.start")}>
                         Start new shell
                       </button>
                     </>
@@ -1769,6 +2140,15 @@ export default function App() {
       )}
       <footer className="statusbar">
         <div>
+          <button
+            className="remote-launch"
+            title="Open a Remote Window (SSH)"
+            aria-label="Connect to Remote"
+            aria-haspopup="dialog"
+            onClick={() => execute("workspace.openSSH")}
+          >
+            <ChevronsLeftRight size={16} />
+          </button>
           <button
             className={`connection-status ${connection.status}`}
             title={`${connection.status} · ${connection.target}\n${root || "Opening workspace"}\nOpen a folder`}
@@ -1845,14 +2225,15 @@ export default function App() {
           <form
             className="modal"
             role="dialog"
-            aria-label="Connect over SSH"
+            aria-label="Connect to Remote"
+            aria-modal="true"
             onSubmit={async (event) => {
               event.preventDefault();
               try {
-                await window.lwr.openSSH(
-                  sshInput.target.trim(),
-                  sshInput.root.trim() || undefined,
-                );
+                await commandApi.execute("workspace.openSSH", {
+                  target: sshInput.target.trim(),
+                  path: sshInput.root.trim() || undefined,
+                });
                 setSSHInput(null);
               } catch (error) {
                 report(error);
@@ -1860,7 +2241,7 @@ export default function App() {
             }}
           >
             <Wifi size={24} />
-            <h2>Connect over SSH</h2>
+            <h2>Connect to Remote</h2>
             <p>
               Uses your OpenSSH configuration and keys. The connection opens in
               a new window.
@@ -1916,15 +2297,27 @@ export default function App() {
             }}
           >
             <h2>{pathPrompt.title}</h2>
-            <input
-              autoFocus
-              aria-label="File path"
-              style={{ width: "100%" }}
-              value={pathPrompt.value}
-              onChange={(event) =>
-                setPathPrompt({ ...pathPrompt, value: event.target.value })
-              }
-            />
+            {pathPrompt.multiline ? (
+              <textarea
+                autoFocus
+                aria-label="Buffer text"
+                rows={14}
+                value={pathPrompt.value}
+                onChange={(event) =>
+                  setPathPrompt({ ...pathPrompt, value: event.target.value })
+                }
+              />
+            ) : (
+              <input
+                autoFocus
+                aria-label="File path"
+                style={{ width: "100%" }}
+                value={pathPrompt.value}
+                onChange={(event) =>
+                  setPathPrompt({ ...pathPrompt, value: event.target.value })
+                }
+              />
+            )}
             <div className="modal-actions">
               <button type="button" onClick={() => setPathPrompt(null)}>
                 Cancel
@@ -1948,14 +2341,14 @@ export default function App() {
             <h2>{prompt.title}</h2>
             <p>{prompt.detail}</p>
             <div className="modal-actions">
-              <button onClick={() => setPrompt(null)}>Keep editing</button>
+              <button onClick={() => execute("confirmation.cancel")}>
+                Keep editing
+              </button>
               <button
                 className="primary-button"
-                onClick={() => {
-                  const action = prompt.action;
-                  setPrompt(null);
-                  action();
-                }}
+                onClick={() =>
+                  execute("confirmation.accept", { token: prompt.token })
+                }
               >
                 {prompt.confirm}
               </button>
@@ -1972,7 +2365,9 @@ export default function App() {
             onSubmit={async (event) => {
               event.preventDefault();
               try {
-                await window.lwr.openWindow(folderInput);
+                await commandApi.execute("window.openFolder", {
+                  path: folderInput,
+                });
                 setFolderInput(null);
               } catch (error) {
                 report(error);

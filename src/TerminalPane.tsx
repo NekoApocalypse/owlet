@@ -21,6 +21,7 @@ export default function TerminalPane({
   useEffect(() => {
     if (!root || connection.status !== "connected") return;
     let disposed = false,
+      exited = false,
       identifier: string | undefined;
     const early: TerminalEvent[] = [];
     const inputQueue: string[] = [];
@@ -81,6 +82,7 @@ export default function TerminalPane({
           ),
         );
       if (event.event === "terminal-exit") {
+        exited = true;
         term.writeln(
           "\r\n\x1b[90m[Shell exited — use Restart terminal to open a new shell]\x1b[0m",
         );
@@ -116,6 +118,14 @@ export default function TerminalPane({
         }
       });
     const input = term.onData(sendInput);
+    const commandInput = (event: Event) => {
+      if (disposed || exited) return;
+      const detail = (event as CustomEvent<{ text: string; accepted: boolean }>)
+        .detail;
+      detail.accepted = true;
+      sendInput(detail.text);
+    };
+    window.addEventListener("owlet-terminal-input", commandInput);
     const observer = new ResizeObserver(() => {
       if (disposed || !host.current?.clientWidth || !host.current.clientHeight)
         return;
@@ -132,6 +142,7 @@ export default function TerminalPane({
       disposed = true;
       observer.disconnect();
       input.dispose();
+      window.removeEventListener("owlet-terminal-input", commandInput);
       unsubscribe();
       if (identifier)
         window.lwr.terminal("terminal-close", { terminal: identifier });
