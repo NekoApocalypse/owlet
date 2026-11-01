@@ -2295,10 +2295,14 @@ export default function App() {
         </div>
         {terminal ? (
           <div className="editor-terminal">
-            <div className="terminal-toolbar">
-              <span className="terminal-title">
-                {terminal.name} · {terminal.status}
-              </span>
+            <div
+              className="terminal-toolbar"
+              role="toolbar"
+              aria-label={`${terminal.name} controls`}
+            >
+              {terminal.status !== "running" && (
+                <span className="terminal-status">{terminal.status}</span>
+              )}
               <div className="actions">
                 <button
                   title="Rename terminal"
@@ -2713,19 +2717,12 @@ export default function App() {
               }
             />
             <div className="terminal-panel">
-              <div className="terminal-toolbar">
-                <div className="terminal-title">
-                  <TerminalSquare size={13} />
-                  TERMINAL
-                  <span>
-                    {connection.shell || (local ? "PowerShell" : "Bash")} ·{" "}
-                    {connection.target}
-                  </span>
-                </div>
+              <div
+                className="terminal-toolbar"
+                role="toolbar"
+                aria-label="Terminal controls"
+              >
                 <div className="actions">
-                  <span className="terminal-tip">
-                    New workspace: <code>owlet .</code>
-                  </span>
                   <button
                     title="New terminal"
                     aria-label="New terminal"

@@ -849,7 +849,7 @@ input {
 .terminal-resizer {
   height: 4px;
   cursor: row-resize;
-  background: #404f7d;
+  background: linear-gradient(to bottom, #bbdaff24 1px, #002451 1px);
   touch-action: none;
   flex-shrink: 0;
 }
@@ -1011,34 +1011,24 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-8);
-  height: var(--bar-height);
-  min-height: var(--bar-height);
-  padding: 0 var(--space-12) 0 var(--space-16);
-  border-bottom: 1px solid #404f7d;
-  background: #001733;
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 var(--space-8) 0 var(--space-12);
+  background: #002451;
 }
-.terminal-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  font-size: 9px;
-  letter-spacing: 1px;
-  color: #bbdaff;
+.terminal-toolbar .actions {
+  margin-left: auto;
 }
-.terminal-title span {
-  font-size: 10px;
-  letter-spacing: 0;
-  color: #9dadce;
-  margin-left: var(--space-16);
+.terminal-toolbar button {
+  color: var(--muted);
 }
-.terminal-tip {
-  color: #9dadce;
-  font-size: 10px;
-  margin-right: var(--space-8);
+.terminal-toolbar button:hover,
+.terminal-toolbar button:focus-visible {
+  color: #ffffff;
 }
-.terminal-tip code {
-  color: #bbdaff;
-  font-size: 10px;
+.terminal-status {
+  color: var(--muted);
+  font-size: 11px;
 }
 .terminal-host {
   display: flex;
