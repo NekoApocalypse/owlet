@@ -132,3 +132,11 @@ check-to-operation interval; directory deletion does not snapshot or lock a tree
 Vim's existing engine supplies search/substitution and history. Small Ex adapters route saves, save-all, and reloads through
 the existing file commands. Reload checks the buffer again after reading so it cannot overwrite newer typing. File operations
 hold save locks while pending; new edits arriving during deletion stay in a missing-file buffer.
+
+## Portable releases
+
+The canonical binary distribution is a Windows x64 portable ZIP. Build from the release tag with `npm ci`, `npm run build`,
+and `npm run package -- --no-shortcuts`. The flag packages the app without creating or modifying local shortcuts. Archive
+the resulting `release/Owlet` directory as `Owlet-v<VERSION>-windows-x64.zip` and publish its SHA-256 checksum alongside it.
+Users extract the complete folder and run `Owlet.exe`; Node.js is not needed. App preferences remain in the Windows user
+profile. Close older Owlet instances before switching builds; there is no automatic updater.

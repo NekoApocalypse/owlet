@@ -21,6 +21,8 @@ Developers rarely write code by hand anymore. Agents write the code, while human
 
 ## Getting started
 
+**Windows portable:** [Download v0.1.0](https://github.com/NekoApocalypse/owlet/releases/download/v0.1.0/Owlet-v0.1.0-windows-x64.zip), extract the complete folder, and run `Owlet.exe`. No Node.js installation required.
+
 1. **Preferred: let your agent do it.** Copy this repository URL into your coding agent (Claude Code, Codex, Antigravity, or OpenCode) and ask it to build and launch Owlet.
 
 2. **Build it yourself.** Requires Windows x64, Node.js 22.12+, and npm.
