@@ -1112,6 +1112,11 @@ input {
 .terminal-host .xterm {
   height: 100%;
 }
+/* xterm fits whole rows; its viewport also covers the leftover partial row.
+   Override the library's black backdrop so that strip matches the terminal. */
+.terminal-host .xterm .xterm-viewport {
+  background-color: #002451;
+}
 .terminal-disconnected {
   display: flex;
   align-items: center;
