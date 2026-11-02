@@ -21,8 +21,12 @@ const { execFileSync } = require("node:child_process");
   );
   const appDir = path.join(destination, "resources", "app");
   fs.mkdirSync(appDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(root, "node_modules/mark.js/LICENSE"),
+    path.join(destination, "LICENSE.mark.js"),
+  );
   // node-pty ships its native ConPTY binaries; no Node or compiler is needed by users.
-  for (const moduleName of ["node-pty"]) {
+  for (const moduleName of ["node-pty", "jsonc-parser"]) {
     fs.cpSync(
       path.join(root, "node_modules", moduleName),
       path.join(appDir, "node_modules", moduleName),

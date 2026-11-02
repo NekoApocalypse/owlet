@@ -47,6 +47,7 @@ import { yaml } from "@codemirror/lang-yaml";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { vim, Vim, getCM } from "@replit/codemirror-vim";
 import { tags } from "@lezer/highlight";
+import type { Settings } from "./settings";
 
 const tomorrowHighlight = HighlightStyle.define([
   { tag: tags.comment, color: "#7285b7" },
@@ -136,15 +137,21 @@ const theme = EditorView.theme(
       height: "100%",
       backgroundColor: "#002451",
       color: "#ffffff",
-      fontSize: "13px",
+      fontSize: "var(--editor-font-size, 13px)",
     },
     ".cm-content": {
-      fontFamily: '"Cascadia Code", Consolas, monospace',
+      fontFamily:
+        'var(--editor-font-family, "Cascadia Code", Consolas, monospace)',
       padding: "var(--space-8) 0",
       caretColor: "#ffffff",
     },
     ".cm-line": { padding: "0 var(--space-16) 0 var(--space-8)" },
-    ".cm-scroller": { overflow: "auto", lineHeight: "1.75" },
+    ".cm-scroller": {
+      overflow: "auto",
+      lineHeight: "var(--editor-line-height, 1.75)",
+      fontFamily:
+        'var(--editor-font-family, "Cascadia Code", Consolas, monospace)',
+    },
     ".cm-gutters": {
       backgroundColor: "#002451",
       color: "#7285b7",
@@ -182,6 +189,8 @@ export default function Editor({
   cacheKey = path,
   value,
   vimMode,
+  wordWrap = true,
+  fontSettings,
   onChange,
   onSave,
   onClose,
@@ -190,6 +199,8 @@ export default function Editor({
   cacheKey?: string;
   value: string;
   vimMode: boolean;
+  wordWrap?: boolean;
+  fontSettings: Settings;
   onChange(value: string): void;
   onSave(): Promise<boolean>;
   onClose(): void;
@@ -197,6 +208,7 @@ export default function Editor({
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | undefined>(undefined);
   const vimCompartment = useRef(new Compartment());
+  const wrapCompartment = useRef(new Compartment());
   const callbacks = useRef({ onChange, onSave, onClose });
   callbacks.current = { onChange, onSave, onClose };
   const syncing = useRef(false);
@@ -233,7 +245,7 @@ export default function Editor({
       syntaxHighlighting(tomorrowHighlight),
       language(path),
       theme,
-      EditorView.lineWrapping,
+      wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
       EditorView.domEventHandlers({
         focus: () => {
           lastFocused = editor;
@@ -299,6 +311,21 @@ export default function Editor({
         close: () => callbacks.current.onClose(),
       });
   }, [vimMode]);
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: wrapCompartment.current.reconfigure(
+        wordWrap ? EditorView.lineWrapping : [],
+      ),
+    });
+  }, [wordWrap]);
+  useEffect(() => {
+    // CSS changes must also refresh CodeMirror's cursor and line measurements.
+    view.current?.requestMeasure();
+  }, [
+    fontSettings["editor.fontSize"],
+    fontSettings["editor.fontFamily"],
+    fontSettings["editor.lineHeight"],
+  ]);
   useEffect(() => {
     const editor = view.current;
     if (editor && editor.state.doc.toString() !== value) {

@@ -84,3 +84,20 @@ shell continuity, targeted input, real SSH reconnect, diagram navigation, and Fi
 
 `tests/explorer-rename.cjs` verifies directory rename recovery locally and over SSH: obsolete subtree requests stop,
 unsaved buffers survive, and a missing workspace root shows an inline notice instead of repeated error toasts.
+
+## Preview reading and preferences
+
+| Action | Command and arguments |
+| --- | --- |
+| Find literal preview text | `preview.find({group?, search?})`; omitted search focuses/reopens the pane's query; at most 512 characters |
+| Navigate/close/inspect preview find | `preview.findNext`, `.findPrevious`, `.closeFind`, `.findState`, each accepting `{group?}`; state returns `open`, `search`, `matches`, `current`, `limited` |
+| Shared window-session preview zoom | `preview.zoom.in`, `.out`, `.reset`; `workspace.state` returns `previewZoom` |
+| Open Settings UI / JSON | `settings.open({group?})`, `settings.json({group?})`; both use the same `owlet://user/settings.json` buffer |
+| Edit one setting / remove its override | `settings.update({key, value})`, `settings.reset({key})`; these edit the buffer without saving; omit key to open the UI |
+| Apply preferences | `settings.save`; `file.save({path: "owlet://user/settings.json"})` is equivalent and preserves conflict checks |
+| Inspect effective preferences and schema | `settings.inspect`; returns local disk `path`, effective `values`, and typed `definitions` with defaults/bounds |
+
+Settings JSON can also be edited via `editor.setText` and inspected through `file.inspect`. Unknown keys/comments survive
+individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you
+to finish unsaved Settings edits first so a shortcut cannot silently save unrelated edits. Direct text entry and settings
+search remain widget interactions; their submitted changes use the same commands as agent calls.

@@ -31,12 +31,26 @@ import {
   ArrowDownLeft,
   Trash2,
   Pencil,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
 import Editor, { editorAction } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
+import SettingsView from "./SettingsView";
+import {
+  SETTINGS_PATH,
+  defaults,
+  definitions,
+  editSetting,
+  resolveSettings,
+  type Settings,
+} from "./settings";
+import {
+  previewFindCommand,
+  type PreviewFindAction,
+} from "./previewFindCommands";
 import type { RecentWorkspace, TerminalSession } from "./types";
 import { useProjectAppearance } from "./projectAppearance";
 import {
@@ -219,6 +233,12 @@ export default function App() {
   const [previewRatios, setPreviewRatios] = useState<Record<string, number>>(
     {},
   );
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [settings, setSettings] = useState<Settings>(defaults);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const [settingsFile, setSettingsFile] = useState("");
+  const settingsRevision = useRef("");
   const [layout, setLayout] = useState<Layout>({
     kind: "group",
     group: { id: 1, tabs: [] },
@@ -240,6 +260,7 @@ export default function App() {
   const [vimMode, setVimMode] = useState(
     localStorage.getItem("lwr-vim") === "true",
   );
+  const legacyVim = useRef(vimMode);
   const [refresh, setRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
@@ -332,7 +353,46 @@ export default function App() {
     );
     setActiveGroup(group);
   }
+  async function readDocument(path: string): Promise<RemoteFile> {
+    if (path !== SETTINGS_PATH)
+      return window.lwr.remote<RemoteFile>("read", { path });
+    const file = await window.lwr.readSettings();
+    setSettingsFile(file.path);
+    return { ...file, path: SETTINGS_PATH };
+  }
+  async function openSettings(
+    mode: "source" | "preview" = "preview",
+    group = groupRef.current,
+  ) {
+    if (
+      !Number.isInteger(group) ||
+      !groups(layoutRef.current).some((item) => item.id === group)
+    )
+      throw new Error("Choose an existing tab group.");
+    if (!docsRef.current[SETTINGS_PATH]) {
+      const file = await readDocument(SETTINGS_PATH);
+      const doc: Document = { ...file, saved: file.text, mode: "preview" };
+      const next = { ...docsRef.current, [SETTINGS_PATH]: doc };
+      docsRef.current = next;
+      setDocuments(next);
+    }
+    activate(SETTINGS_PATH, group);
+    setMode(SETTINGS_PATH, mode, group);
+  }
+  function applySettings(file: RemoteFile) {
+    const values = resolveSettings(file.text);
+    settingsRef.current = values;
+    setSettings(values);
+    setVimMode(values["editor.vimMode"]);
+    settingsRevision.current = file.revision;
+  }
+  async function updateSetting(key: string, value: unknown) {
+    if (!docsRef.current[SETTINGS_PATH]) await openSettings();
+    const doc = docsRef.current[SETTINGS_PATH];
+    patch(SETTINGS_PATH, { text: editSetting(doc.text, key, value) });
+  }
   async function openFile(path: string, group = groupRef.current) {
+    if (path === SETTINGS_PATH) return openSettings("preview", group);
     if (docsRef.current[path]) {
       activate(path, group);
       return;
@@ -367,7 +427,11 @@ export default function App() {
               text,
               saved: text,
               lineEnding: result.text.includes("\r\n") ? "\r\n" : "\n",
-              mode: isMarkdown(path) ? "preview" : "source",
+              mode: isMarkdown(path)
+                ? (settingsRef.current[
+                    "markdown.defaultView"
+                  ] as Document["mode"])
+                : "source",
             };
           }
           setDocuments((previous) => ({ ...previous, [path]: document }));
@@ -397,10 +461,21 @@ export default function App() {
     try {
       const text =
         doc.lineEnding === "\r\n" ? doc.text.replace(/\n/g, "\r\n") : doc.text;
-      const result = await window.lwr.remote<{
-        revision: string;
-        stamp: string;
-      }>("save", { path, text, revision: replacementRevision || doc.revision });
+      const result =
+        path === SETTINGS_PATH
+          ? await window.lwr.saveSettings({
+              text,
+              revision: replacementRevision || doc.revision,
+            })
+          : await window.lwr.remote<{
+              revision: string;
+              stamp: string;
+            }>("save", {
+              path,
+              text,
+              revision: replacementRevision || doc.revision,
+            });
+      if (path === SETTINGS_PATH) applySettings({ ...doc, ...result, text });
       patch(path, {
         revision: result.revision,
         stamp: result.stamp,
@@ -414,7 +489,7 @@ export default function App() {
     } catch (error) {
       if (String(error).includes("CONFLICT")) {
         try {
-          const remote = await window.lwr.remote<RemoteFile>("read", { path });
+          const remote = await readDocument(path);
           patch(path, { conflict: remote });
           setComparison(path);
         } catch (readError) {
@@ -1122,7 +1197,10 @@ export default function App() {
         id: "file.save",
         title: "File: Save",
         shortcut: "Ctrl+S / :w",
-        enabled: !!current && !current.image && connected,
+        enabled:
+          !!current &&
+          !current.image &&
+          (connected || current.path === SETTINGS_PATH),
         run: (args) => saveFile(args.path || current!.path),
       },
       {
@@ -1148,15 +1226,17 @@ export default function App() {
       {
         id: "file.revert",
         title: "File: Revert to Saved Version",
-        enabled: !!current && !current.image && connected,
+        enabled:
+          !!current &&
+          !current.image &&
+          (connected || current.path === SETTINGS_PATH),
         run: () =>
           setPrompt({
             title: "Discard edits and reload the saved file?",
             detail: "The saved content will replace your editor buffer.",
             confirm: "Reload saved file",
             action: () => {
-              void window.lwr
-                .remote<RemoteFile>("read", { path: current!.path })
+              void readDocument(current!.path)
                 .then((result) => {
                   const text = result.text.replace(/\r\n/g, "\n");
                   patch(current!.path, {
@@ -1214,7 +1294,77 @@ export default function App() {
       {
         id: "editor.vim",
         title: "Editor: Toggle Vim Mode",
-        run: () => setVimMode((value) => !value),
+        run: async () => {
+          if (
+            docsRef.current[SETTINGS_PATH]?.text !== undefined &&
+            docsRef.current[SETTINGS_PATH].text !==
+              docsRef.current[SETTINGS_PATH].saved
+          )
+            throw new Error(
+              "Save or discard your Settings edits before toggling Vim mode.",
+            );
+          const file = await window.lwr.readSettings();
+          const result = await window.lwr.saveSettings({
+            text: editSetting(file.text, "editor.vimMode", !vimMode),
+            revision: file.revision,
+          });
+          applySettings(result);
+          patch(SETTINGS_PATH, {
+            ...result,
+            path: SETTINGS_PATH,
+            saved: result.text,
+            conflict: undefined,
+          });
+        },
+      },
+      {
+        id: "settings.open",
+        title: "Preferences: Open Settings",
+        shortcut: "Ctrl+,",
+        parameters: { group: "Optional numeric tab-group ID" },
+        run: (args) => openSettings("preview", args.group),
+      },
+      {
+        id: "settings.json",
+        title: "Preferences: Open Settings (JSON)",
+        parameters: { group: "Optional numeric tab-group ID" },
+        run: (args) => openSettings("source", args.group),
+      },
+      {
+        id: "settings.update",
+        title: "Preferences: Change Setting…",
+        parameters: {
+          key: "Setting ID; omission opens Settings",
+          value: "Typed value; edits buffer, use settings.save to apply",
+        },
+        run: (args) => {
+          if (!args.key) return openSettings();
+          if (!Object.hasOwn(args, "value"))
+            throw new Error("Provide a typed value, or use settings.reset.");
+          return updateSetting(args.key, args.value);
+        },
+      },
+      {
+        id: "settings.reset",
+        title: "Preferences: Reset Setting to Default…",
+        parameters: { key: "Setting ID; omission opens Settings" },
+        run: (args) =>
+          args.key ? updateSetting(args.key, undefined) : openSettings(),
+      },
+      {
+        id: "settings.save",
+        title: "Preferences: Save Settings",
+        enabled: !!documents[SETTINGS_PATH],
+        run: () => saveFile(SETTINGS_PATH),
+      },
+      {
+        id: "settings.inspect",
+        title: "Preferences: Inspect Settings",
+        run: () => ({
+          path: settingsFile,
+          values: settings,
+          definitions: Object.fromEntries(definitions),
+        }),
       },
       {
         id: "file.inspect",
@@ -1334,6 +1484,61 @@ export default function App() {
             : setPathPrompt({ title: "Heading ID", value: "", action: apply });
         },
       },
+      ...(["in", "out", "reset"] as const).map((direction) => ({
+        id: `preview.zoom.${direction}`,
+        title: `Preview: ${direction === "reset" ? "Reset Zoom" : direction === "in" ? "Zoom In" : "Zoom Out"}`,
+        shortcut:
+          direction === "reset"
+            ? "Ctrl+0"
+            : direction === "in"
+              ? "Ctrl++"
+              : "Ctrl+-",
+        run: () =>
+          setPreviewZoom((value) => {
+            const levels = [
+              0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3,
+            ];
+            return direction === "reset"
+              ? 1
+              : direction === "in"
+                ? (levels.find((level) => level > value) ?? 3)
+                : ([...levels].reverse().find((level) => level < value) ?? 0.5);
+          }),
+      })),
+      ...(
+        [
+          "find",
+          "findNext",
+          "findPrevious",
+          "closeFind",
+          "findState",
+        ] as PreviewFindAction[]
+      ).map((action) => ({
+        id: `preview.${action}`,
+        title: `Preview: ${{ find: "Find in Preview", findNext: "Find Next", findPrevious: "Find Previous", closeFind: "Close Find", findState: "Inspect Find State" }[action]}`,
+        keywords: ["Search Markdown preview"],
+        shortcut: action === "find" ? "Ctrl+F" : undefined,
+        enabled: groups(layout).some((group) => {
+          const doc = documents[group.active || ""];
+          return (
+            doc &&
+            isMarkdown(doc.path) &&
+            (viewModes[`${group.id}:${doc.path}`] || doc.mode) !== "source"
+          );
+        }),
+        parameters: {
+          group: "Optional editor group ID; defaults to active group",
+          ...(action === "find"
+            ? { search: "Optional literal search text, up to 512 characters" }
+            : {}),
+        },
+        run: (args: Record<string, any>) =>
+          previewFindCommand(
+            args.group ?? groupRef.current,
+            action,
+            args.search,
+          ),
+      })),
       ...(
         [
           "find",
@@ -1587,6 +1792,8 @@ export default function App() {
             viewModes,
             activeGroup,
             previewRatios,
+            previewZoom,
+            settings,
             confirmation: prompt
               ? {
                   title: prompt.title,
@@ -1983,6 +2190,17 @@ export default function App() {
     window.lwr.bootstrap().then(async (config) => {
       setConnection(config.connection);
       try {
+        let preferences = await window.lwr.readSettings();
+        if (preferences.revision === "missing" && legacyVim.current)
+          preferences = await window.lwr.saveSettings({
+            text: editSetting(preferences.text, "editor.vimMode", true),
+            revision: preferences.revision,
+          });
+        applySettings(preferences);
+      } catch (error) {
+        report(error);
+      }
+      try {
         const state = await window.lwr.connect();
         setConnection(state);
         setRoot(config.root ?? state.home ?? "/");
@@ -1997,6 +2215,47 @@ export default function App() {
   useEffect(() => {
     window.lwr.dirty(dirty);
   }, [dirty]);
+  useEffect(() => {
+    let stopped = false,
+      pending = false,
+      lastError = "";
+    async function refreshSettings() {
+      if (pending) return;
+      pending = true;
+      try {
+        const file = await readDocument(SETTINGS_PATH);
+        if (
+          stopped ||
+          saving.current.has(SETTINGS_PATH) ||
+          file.revision === settingsRevision.current
+        )
+          return;
+        const doc = docsRef.current[SETTINGS_PATH];
+        if (doc && doc.text === doc.saved)
+          patch(SETTINGS_PATH, {
+            ...file,
+            saved: file.text,
+            conflict: undefined,
+          });
+        // A dirty Settings buffer keeps its revision; Save checks for conflicts.
+        applySettings(file);
+        lastError = "";
+      } catch (error) {
+        if (!stopped && String(error) !== lastError) {
+          lastError = String(error);
+          report(error);
+        }
+      } finally {
+        pending = false;
+      }
+    }
+    void refreshSettings();
+    const timer = setInterval(refreshSettings, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     localStorage.setItem("lwr-vim", String(vimMode));
   }, [vimMode]);
@@ -2019,6 +2278,22 @@ export default function App() {
       if (key === "f1" || (event.ctrlKey && event.shiftKey && key === "p"))
         id = "commands.show";
       else if (key === "f11") id = "window.fullscreen";
+      else if ((event.ctrlKey || event.metaKey) && key === ",")
+        id = "settings.open";
+      else if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        key === "f" &&
+        !(event.target as HTMLElement)?.closest(
+          ".cm-editor, .terminal-host, input, textarea",
+        ) &&
+        !document.querySelector(
+          ".diagram-viewer, .palette-shade, .modal-shade",
+        ) &&
+        document.querySelector(`[data-preview-group="${groupRef.current}"]`)
+      )
+        id = "preview.find";
       else if ((event.ctrlKey || event.metaKey) && key === "s")
         id = "file.save";
       else if (event.ctrlKey && key === "`") id = "terminal.toggle";
@@ -2050,7 +2325,8 @@ export default function App() {
           groups(layoutRef.current)
             .map((group) => group.active)
             .filter(
-              (path): path is string => !!path && !!docsRef.current[path],
+              (path): path is string =>
+                !!path && path !== SETTINGS_PATH && !!docsRef.current[path],
             ),
         ),
       ];
@@ -2215,7 +2491,9 @@ export default function App() {
               const terminalTab = terminalSessions.find(
                 (item) => item.id === path,
               );
-              const label = terminalTab?.name || basename(path);
+              const label =
+                terminalTab?.name ||
+                (path === SETTINGS_PATH ? "Settings" : basename(path));
               const item = documents[path],
                 isDirty = item && item.text !== item.saved;
               return (
@@ -2241,6 +2519,8 @@ export default function App() {
                 >
                   {terminalTab ? (
                     <TerminalSquare size={15} />
+                  ) : path === SETTINGS_PATH ? (
+                    <SettingsIcon size={15} />
                   ) : (
                     <FileIcon path={path} />
                   )}
@@ -2339,11 +2619,37 @@ export default function App() {
           <>
             <div className="document-toolbar">
               <div className="breadcrumbs" title={doc.path}>
-                <span>{dirname(doc.path).replace(root, basename(root))}</span>
+                <span>
+                  {doc.path === SETTINGS_PATH
+                    ? "User settings"
+                    : dirname(doc.path).replace(root, basename(root))}
+                </span>
                 <ChevronRight size={12} />
                 <strong>{basename(doc.path)}</strong>
               </div>
               <div className="document-actions">
+                {doc.path === SETTINGS_PATH && (
+                  <div className="mode-switch">
+                    <button
+                      className={doc.mode !== "source" ? "chosen" : ""}
+                      aria-label="Settings UI"
+                      onClick={() =>
+                        execute("settings.open", { group: group.id })
+                      }
+                    >
+                      <SettingsIcon size={13} /> UI
+                    </button>
+                    <button
+                      className={doc.mode === "source" ? "chosen" : ""}
+                      aria-label="Settings JSON"
+                      onClick={() =>
+                        execute("settings.json", { group: group.id })
+                      }
+                    >
+                      <Code2 size={13} /> JSON
+                    </button>
+                  </div>
+                )}
                 {isMarkdown(doc.path) && (
                   <div className="mode-switch">
                     {(["source", "preview", "both"] as const).map((mode) => (
@@ -2390,7 +2696,8 @@ export default function App() {
                     disabled={
                       busy.has(doc.path) ||
                       doc.text === doc.saved ||
-                      connection.status !== "connected"
+                      (doc.path !== SETTINGS_PATH &&
+                        connection.status !== "connected")
                     }
                     onClick={() => execute("file.save", { path: doc.path })}
                   >
@@ -2416,7 +2723,15 @@ export default function App() {
               </div>
             )}
             <div className="document-body">
-              {doc.image ? (
+              {doc.path === SETTINGS_PATH && doc.mode !== "source" ? (
+                <SettingsView
+                  text={doc.text}
+                  file={settingsFile}
+                  onCommand={(id, args) =>
+                    execute(id, { ...args, group: group.id })
+                  }
+                />
+              ) : doc.image ? (
                 <ImageViewer document={doc} onCommand={execute} />
               ) : doc.mode === "both" && isMarkdown(doc.path) ? (
                 <SourcePreview
@@ -2434,6 +2749,8 @@ export default function App() {
                       path={doc.path}
                       value={doc.text}
                       vimMode={vimMode}
+                      wordWrap={settings["editor.wordWrap"]}
+                      fontSettings={settings}
                       onChange={(value) => patch(doc.path, { text: value })}
                       onSave={() =>
                         commandApi.execute("file.save", {
@@ -2455,6 +2772,8 @@ export default function App() {
                       }
                     >
                       <Preview
+                        group={group.id}
+                        zoom={previewZoom}
                         text={doc.text}
                         path={doc.path}
                         root={root}
@@ -2474,6 +2793,8 @@ export default function App() {
                   fallback={<div className="loading">Preparing preview…</div>}
                 >
                   <Preview
+                    group={group.id}
+                    zoom={previewZoom}
                     text={doc.text}
                     path={doc.path}
                     root={root}
@@ -2492,6 +2813,8 @@ export default function App() {
                   path={doc.path}
                   value={doc.text}
                   vimMode={vimMode}
+                  wordWrap={settings["editor.wordWrap"]}
+                  fontSettings={settings}
                   onChange={(value) => patch(doc.path, { text: value })}
                   onSave={() =>
                     commandApi.execute("file.save", {
@@ -2575,7 +2898,20 @@ export default function App() {
   }
   const conflictDoc = comparison ? documents[comparison] : undefined;
   return (
-    <div className="app-shell" style={appearance.style}>
+    <div
+      className="app-shell"
+      style={
+        {
+          ...appearance.style,
+          "--editor-font-size": `${settings["editor.fontSize"]}px`,
+          "--editor-font-family": settings["editor.fontFamily"],
+          "--editor-line-height": settings["editor.lineHeight"],
+          "--preview-font-size": `${settings["preview.fontSize"]}px`,
+          "--preview-font-family": settings["preview.fontFamily"],
+          "--preview-line-height": settings["preview.lineHeight"],
+        } as React.CSSProperties
+      }
+    >
       <header className="topbar">
         <img className="app-logo" src={owletLogo} alt="Owlet" />
         <button
@@ -2598,6 +2934,13 @@ export default function App() {
           </strong>
         </button>
         <div className="top-actions">
+          <button
+            aria-label="Open settings"
+            title="Settings (Ctrl+,)"
+            onClick={() => execute("settings.open")}
+          >
+            <SettingsIcon size={16} />
+          </button>
           <button
             aria-label="Choose project color"
             title="Choose project window color"
@@ -2871,6 +3214,7 @@ export default function App() {
       <Suspense fallback={null}>
         {terminalSessions.map((item) => (
           <TerminalPane
+            settings={settings}
             key={item.id}
             id={item.id}
             root={item.path}

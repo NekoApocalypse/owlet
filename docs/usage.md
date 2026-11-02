@@ -69,7 +69,7 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 - `Ctrl+Shift+P` or `F1` opens the command palette.
 - `Ctrl+S` saves. Files are not saved automatically.
-- `Ctrl+F` searches source. Syntax highlighting does not start a language server.
+- `Ctrl+F` searches the focused source editor or Markdown preview. Syntax highlighting does not start a language server.
 - `Ctrl+\` splits right. The palette offers Split Down and group navigation.
 - Ctrl plus backtick toggles the terminal. `Ctrl+Shift+E` toggles the Explorer.
 - Vim mode supports `:w`, `:q`, and `:wq` through the normal save and close safeguards.
@@ -133,3 +133,44 @@ a crash can leave temporary files. Saves still fail when the target volume is fu
 
 Shell-profile errors remain visible. Owlet limits pyenv rehash retries to two seconds unless the host already sets
 `PYENV_REHASH_TIMEOUT`. Other slow shell-profile commands can delay the terminal while files remain available.
+
+## Preferences
+
+Click the **gear** in the title bar, press `Ctrl+,`, or run **Preferences: Open Settings**.
+Settings opens as an ordinary editor tab: split it beside a document, search for `font`, and switch between **UI** and **JSON**.
+Both modes share the same unsaved buffer. **Save** (`Ctrl+S`) applies changes; closing a dirty tab asks before discarding them.
+
+Settings cover source and preview font size/family/line spacing, source word wrap and Vim mode, the initial Markdown view,
+and terminal font size/family/line spacing/scrollback. Fonts must already be installed. Terminal appearance changes keep the
+running shell. Reset beside a setting removes its override; Save applies the default.
+
+User preferences live in `settings.json` inside Owlet's local application profile (normally `%APPDATA%/Owlet` on Windows).
+The Settings tab shows the exact path. This file is local even in SSH windows, and saved changes reach other windows within
+about two seconds. It accepts JSON with comments and trailing commas. Unknown keys are preserved but ignored; recognized keys
+have checked types and bounds. Invalid files keep the last valid preferences until corrected. Save detects disk conflicts.
+Project colors remain in the project's `.owlet/settings.json`; font preferences do not yet have project overrides.
+
+Example:
+
+```jsonc
+{
+  "editor.fontSize": 15,
+  "editor.wordWrap": true,
+  "editor.vimMode": true,
+  "preview.fontSize": 17,
+  "terminal.fontSize": 14,
+  "markdown.defaultView": "preview"
+}
+```
+
+## Find and zoom in previews
+
+Press `Ctrl+F` inside a Markdown preview to search its visible prose, headings, inline code, and code blocks.
+`Enter` / `Shift+Enter` move through matches; `Esc` closes find. This is literal, case-insensitive search, scoped to that pane.
+Equations and Mermaid diagrams are excluded. Use Source mode to search their source. There is no preview replacement or regex
+search; results are capped at 1,000 per pane. New file contents refresh the results without editing the file.
+
+Inside a preview, `Ctrl++` (also `Ctrl+=`), `Ctrl+-`, and `Ctrl+wheel` zoom the rendered content from 50% to 300%.
+`Ctrl+0` or the percentage badge resets it. All previews in that window share the zoom, including previews opened later.
+The surrounding UI, source editors, and terminals stay at their own sizes. Preview zoom resets when the window reloads;
+use the saved preview font size preference for a lasting reading size.

@@ -100,3 +100,17 @@ Dependency licenses remain applicable. The portable package preserves Electron's
 - [Command registry](../src/commands.tsx)
 - [Workspace UI](../src/App.tsx)
 - [Path handling](../src/types.ts)
+
+## Preferences and preview reading
+
+`electron/settings-schema.json` defines labels, defaults, types (via the default), and bounds for the settings UI and backend.
+`src/settings.ts` derives the TypeScript settings model and preserves JSONC comments with `jsonc-parser` edits.
+`electron/settings.cjs` owns the local user file, validates writes, and checks content revisions before atomic replacement.
+The virtual Settings document shares the ordinary dirty-tab/save/conflict flow but never goes through the SSH backend.
+Editor fonts use CSS variables and a word-wrap compartment; terminal options update the existing xterm instance and refit its PTY.
+
+Preview find uses MIT-licensed `mark.js` within the rendered article only. Math, SVG, and diagram subtrees are excluded.
+The small event adapter in `previewFindCommands.ts` connects independent mounted previews to the command registry without
+moving search state into the whole workspace. Preview zoom is window state, separate from saved reading fonts and application zoom.
+
+Focused checks: `node --test tests/settings.test.cjs` and `node tests/preview-settings.cjs` (after `npm run build`).

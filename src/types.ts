@@ -61,6 +61,11 @@ export type TerminalSession = {
 declare global {
   interface Window {
     lwr: {
+      readSettings(): Promise<RemoteFile>;
+      saveSettings(args: {
+        text: string;
+        revision: string;
+      }): Promise<RemoteFile>;
       bootstrap(): Promise<{
         root?: string;
         file?: string;

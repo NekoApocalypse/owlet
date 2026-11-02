@@ -87,6 +87,11 @@ function sendAll(channel, payload) {
   for (const win of BrowserWindow.getAllWindows())
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
 }
+const userSettings = new (require("./settings.cjs").UserSettings)(
+  path.join(app.getPath("userData"), "settings.json"),
+);
+ipcMain.handle("settings-read", () => userSettings.read());
+ipcMain.handle("settings-save", (_, args) => userSettings.save(args));
 function openWindow(root, file, session = sessionFor()) {
   const win = new BrowserWindow({
     width: 1440,

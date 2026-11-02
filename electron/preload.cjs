@@ -5,6 +5,8 @@ function subscribe(channel, callback) {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 contextBridge.exposeInMainWorld("lwr", {
+  readSettings: () => ipcRenderer.invoke("settings-read"),
+  saveSettings: (args) => ipcRenderer.invoke("settings-save", args),
   bootstrap: () => ipcRenderer.invoke("bootstrap"),
   connect: () => ipcRenderer.invoke("connect"),
   disconnect: () => ipcRenderer.invoke("disconnect"),
