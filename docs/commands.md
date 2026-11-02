@@ -98,6 +98,10 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 | Apply preferences | `settings.save`; `file.save({path: "owlet://user/settings.json"})` is equivalent and preserves conflict checks |
 | Inspect effective preferences and schema | `settings.inspect`; returns local disk `path`, effective `values`, and typed `definitions` with defaults/bounds |
 
+`Ctrl++` / `Ctrl+=`, `Ctrl+-` (including numpad plus/minus), and `Ctrl+0` route to these zoom commands when a preview is
+focused or active after a tab/Explorer click. Source editors, terminals and modal inputs retain their own shortcuts.
+Ctrl+wheel inside a preview uses the same shared zoom commands.
+
 Settings JSON can also be edited via `editor.setText` and inspected through `file.inspect`. Unknown keys/comments survive
 individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you
 to finish unsaved Settings edits first so a shortcut cannot silently save unrelated edits. Direct text entry and settings

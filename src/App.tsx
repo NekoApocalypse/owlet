@@ -266,6 +266,7 @@ export default function App() {
   );
   const legacyVim = useRef(vimMode);
   const [refresh, setRefresh] = useState(0);
+  const [explorerActivation, setExplorerActivation] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [indexRevision, setIndexRevision] = useState(0);
@@ -371,6 +372,7 @@ export default function App() {
       return next;
     });
   function activate(path: string, group = groupRef.current) {
+    setExplorerActivation((value) => value + 1);
     if (terminalsRef.current.some((item) => item.id === path))
       setActiveTerminal(path);
     setLayout((previous) =>
@@ -2236,6 +2238,7 @@ export default function App() {
             if (!groups(layoutRef.current).some((item) => item.id === group))
               throw new Error("Unknown group ID");
             setActiveGroup(group);
+            setExplorerActivation((value) => value + 1);
           };
           return args.group === undefined
             ? setPathPrompt({
@@ -2858,6 +2861,47 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("lwr-vim", String(vimMode));
   }, [vimMode]);
+  useEffect(() => {
+    const previewZoomShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey
+      )
+        return;
+      const direction =
+        ["+", "="].includes(event.key) || event.code === "NumpadAdd"
+          ? "in"
+          : event.key === "-" || event.code === "NumpadSubtract"
+            ? "out"
+            : event.key === "0" || event.code === "Numpad0"
+              ? "reset"
+              : null;
+      if (
+        !direction ||
+        document.querySelector(".diagram-viewer, .palette-shade, .modal-shade")
+      )
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const pane = target?.closest<HTMLElement>("[data-preview-group]");
+      // Tab/Explorer clicks can leave focus outside the active preview. Source
+      // editors, terminals and other inputs still own their keyboard shortcuts.
+      if (
+        !pane &&
+        (target?.closest(
+          ".cm-editor, .terminal-host, input, textarea, [contenteditable]",
+        ) ||
+          !document.querySelector(`[data-preview-group="${groupRef.current}"]`))
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      execute(`preview.zoom.${direction}`);
+    };
+    window.addEventListener("keydown", previewZoomShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", previewZoomShortcut, true);
+  }, [commandApi]);
   useEffect(() => {
     const quickOpenShortcut = (event: KeyboardEvent) => {
       if (
@@ -3723,6 +3767,9 @@ export default function App() {
                 }
                 root={root}
                 selected={current?.path}
+                activation={explorerActivation}
+                visible={sidebar}
+                caseInsensitive={local}
                 revision={refresh}
                 onOpen={(path) => execute("file.open", { path })}
                 onFolder={() => execute("window.openFolder")}

@@ -24,6 +24,9 @@ export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
 export default function Explorer({
   root,
   selected,
+  activation,
+  visible,
+  caseInsensitive,
   cutPath,
   revision,
   onOpen,
@@ -35,6 +38,9 @@ export default function Explorer({
 }: {
   root: string;
   selected?: string;
+  activation: number;
+  visible: boolean;
+  caseInsensitive: boolean;
   cutPath?: string;
   revision: number;
   onOpen(path: string): void;
@@ -50,6 +56,19 @@ export default function Explorer({
   const [hidden, setHidden] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [rootError, setRootError] = useState("");
+  const tree = useRef<HTMLDivElement>(null);
+  const [reveal, setReveal] = useState<{
+    path: string;
+    attempted: Set<string>;
+  } | null>(null);
+  const pathKey = (path: string) => {
+    const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
+    return caseInsensitive ? normalized.toLowerCase() : normalized;
+  };
+  const activeBranch = (path: string) =>
+    !!selected &&
+    (pathKey(selected) === pathKey(path) ||
+      pathKey(selected).startsWith(pathKey(path).replace(/\/$/, "") + "/"));
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
   const currentRoot = useRef(root);
@@ -207,8 +226,102 @@ export default function Explorer({
     for (const dir of expanded) if (dir !== root) void load(dir);
   }, [revision]);
   useEffect(() => {
+    const prefix = pathKey(root).replace(/\/$/, "") + "/";
+    // Virtual documents and files outside this workspace have no tree row.
+    setReveal(
+      visible && root && selected && pathKey(selected).startsWith(prefix)
+        ? { path: selected, attempted: new Set() }
+        : null,
+    );
+  }, [root, selected, activation, visible, revision]);
+  useEffect(() => {
+    if (!reveal || reveal.path !== selected || !visible) return;
+    const parts = reveal.path
+      .replaceAll("\\", "/")
+      .slice(root.replaceAll("\\", "/").replace(/\/+$/, "").length)
+      .split("/")
+      .filter(Boolean);
+    let parent = root;
+    const parents = new Set([root]);
+    const expandParents = () => {
+      if ([...parents].some((path) => !expandedRef.current.has(path))) {
+        const next = new Set([...expandedRef.current, ...parents]);
+        expandedRef.current = next;
+        setExpanded(next);
+        return true;
+      }
+      return false;
+    };
+    const request = (path: string, offset = 0) => {
+      expandParents();
+      if (inFlight.current.has(path)) return;
+      const key = JSON.stringify([path, offset]);
+      // A failed or invalidated page must not turn a missing file into a retry loop.
+      if (reveal.attempted.has(key)) return;
+      reveal.attempted.add(key);
+      void load(path, offset);
+    };
+    for (let index = 0; index < parts.length; index++) {
+      const listing = listings[parent];
+      if (!listing) {
+        request(parent);
+        return;
+      }
+      const entry = listing.entries.find((item) =>
+        caseInsensitive
+          ? item.name.toLowerCase() === parts[index].toLowerCase()
+          : item.name === parts[index],
+      );
+      if (!entry) {
+        if (listing.next !== null) request(parent, listing.next);
+        else setReveal(null);
+        return;
+      }
+      if (index < parts.length - 1) {
+        if (!entry.directory) {
+          setReveal(null);
+          return;
+        }
+        parent = entry.path;
+        parents.add(parent);
+      } else {
+        if (expandParents()) return;
+        // Refresh can temporarily replace a paginated listing with its first
+        // page. Finish only after the ancestor requests have settled.
+        if (
+          [...parents].some(
+            (path) => loading.has(path) || inFlight.current.has(path),
+          )
+        )
+          return;
+        const row = [
+          ...(tree.current?.querySelectorAll<HTMLElement>("[data-file-path]") ||
+            []),
+        ].find(
+          (item) => pathKey(item.dataset.filePath!) === pathKey(reveal.path),
+        );
+        if (!row) return; // Expanded parents render on the next React commit.
+        const frame = requestAnimationFrame(() => {
+          const bounds = row.getBoundingClientRect(),
+            viewport = tree.current!.getBoundingClientRect();
+          if (bounds.bottom > viewport.bottom)
+            tree.current!.scrollTop += bounds.bottom - viewport.bottom;
+          else if (bounds.top < viewport.top)
+            tree.current!.scrollTop -= viewport.top - bounds.top;
+          // Keep editor/preview keyboard focus. Only selection and scroll move.
+          setReveal(null);
+        });
+        return () => cancelAnimationFrame(frame);
+      }
+    }
+  }, [reveal, selected, visible, listings, expanded, loading]);
+  useEffect(() => {
     const action = (event: Event) => {
       const detail = (event as CustomEvent).detail;
+      if (
+        ["collapse", "collapseFolder", "toggleFolder"].includes(detail.action)
+      )
+        setReveal(null);
       if (detail.action === "hidden")
         setHidden((value) =>
           typeof detail.visible === "boolean" ? detail.visible : !value,
@@ -259,7 +372,10 @@ export default function Explorer({
     return (
       <>
         {listing.entries
-          .filter((entry) => hidden || !entry.name.startsWith("."))
+          .filter(
+            (entry) =>
+              hidden || !entry.name.startsWith(".") || activeBranch(entry.path),
+          )
           .map((entry) => (
             <div key={entry.path}>
               <button
@@ -297,7 +413,13 @@ export default function Explorer({
                     event.clientY,
                   );
                 }}
-                className={`tree-row ${selected === entry.path ? "selected" : ""} ${cutPath === entry.path ? "cut-item" : ""} ${dropTarget === entry.path && entry.directory ? "drop-target" : ""}`}
+                className={`tree-row ${selected && pathKey(selected) === pathKey(entry.path) ? "selected" : ""} ${cutPath === entry.path ? "cut-item" : ""} ${dropTarget === entry.path && entry.directory ? "drop-target" : ""}`}
+                data-file-path={entry.path}
+                aria-current={
+                  selected && pathKey(selected) === pathKey(entry.path)
+                    ? true
+                    : undefined
+                }
                 style={{
                   paddingLeft: `calc(var(--space-8) + ${depth} * var(--space-12))`,
                 }}
@@ -421,6 +543,7 @@ export default function Explorer({
       </div>
       <div
         className="tree"
+        ref={tree}
         data-testid="explorer-tree"
         data-ready={!!listings[root]}
       >

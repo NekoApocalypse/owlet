@@ -181,6 +181,9 @@ Inside a preview, `Ctrl++` (also `Ctrl+=`), `Ctrl+-`, and `Ctrl+wheel` zoom the 
 `Ctrl+0` or the percentage badge resets it. All previews in that window share the zoom, including previews opened later.
 The surrounding UI, source editors, and terminals stay at their own sizes. Preview zoom resets when the window reloads;
 use the saved preview font size preference for a lasting reading size.
+The keyboard shortcuts also work immediately after selecting a preview tab or opening it from the Explorer;
+clicking into the article first is unnecessary. Numpad plus/minus are supported. Source editors, terminals,
+and modal inputs retain their own keyboard behavior.
 
 ## Quick Open and file actions
 
@@ -190,6 +193,11 @@ indexed. `files.quickOpenMaxDepth` in Settings defaults to 5 (0 means root files
 `node_modules`, `.venv`, `__pycache__`, and symlink directories. It stops at 20,000 files, 5,000 queued folders, or 10,000 listing
 pages and labels a capped/error result as partial. Refresh with the Quick Open refresh button; reopening after 15 seconds
 also refreshes while keeping existing results usable. It is not a continuously watched filesystem-wide search.
+
+Opening or activating a file reveals it in the Explorer: its parent folders expand, its row is selected, and the tree
+scrolls to it without moving keyboard focus. This also follows tab and split-group switches. Only the necessary ancestor
+folders and directory pages are loaded. A hidden Explorer stays hidden until reopened; files outside the workspace and
+Settings have no tree target. Hidden ancestors of the active file are visible without changing Show hidden files.
 
 Right-click an Explorer item or file tab for **New File**, **New Folder**, **Cut**, **Copy**, **Paste**, **Copy Path**, **Copy Relative Path**, **Rename**, and
 **Delete**. SSH file menus also offer **Download**. New items are created beside the clicked file or inside the clicked folder.
@@ -220,6 +228,9 @@ Source editors highlight Markdown structure, inline code, links, and fenced code
 are case-insensitive, including `.MD` and `.mdown`. Common code/configuration files use local syntax parsers: JavaScript,
 TypeScript, Python, HTML, CSS, JSON, YAML, shell, PowerShell, C/C++, C#, Java, Kotlin, Rust, Go, SQL, TOML, Dockerfiles, and diff.
 Unknown languages stay readable as plain text. This is token highlighting, without language servers or semantic analysis.
+Markdown emphasis styles the enclosed text as well as its delimiters: `**bold**` / `__bold__` is bold and warm yellow,
+`*italic*` / `_italic_` is italic and lavender, and `~~strikethrough~~` is muted blue with a line through the text.
+Nested styles combine; formatting syntax inside inline code stays literal.
 
 ## Everyday Vim
 
