@@ -55,6 +55,21 @@ async function capture(page) {
     });
   });
 }
+async function checkTerminalBackdrop(page, id) {
+  const colors = await page
+    .locator(`[data-terminal-id="${id}"]`)
+    .evaluate((el) => ({
+      viewport: getComputedStyle(el.querySelector(".xterm-viewport"))
+        .backgroundColor,
+      rows: getComputedStyle(el.querySelector(".xterm-scrollable-element"))
+        .backgroundColor,
+    }));
+  assert.equal(
+    colors.viewport,
+    colors.rows,
+    "The partial-row space below the terminal must match its rendered background",
+  );
+}
 async function output(page, pty, text) {
   try {
     await page.waitForFunction(
@@ -88,6 +103,7 @@ async function output(page, pty, text) {
   page.setDefaultTimeout(20000);
   await page.locator('[data-ready="true"]').waitFor();
   const [first] = await running(page, 1);
+  await checkTerminalBackdrop(page, first.id);
   await capture(page);
   await command(page, "terminal.sendText", {
     id: first.id,
@@ -153,6 +169,7 @@ async function output(page, pty, text) {
     text: "Write-Output ('VALUE_' + $env:OWLET_PROBE)\r",
   });
   await output(page, first.pty, "VALUE_ONE");
+  await checkTerminalBackdrop(page, first.id);
   assert.equal(
     await page.evaluate(
       (pty) => (window.__terminalOutput[pty] || "").includes("VALUE_ONE"),

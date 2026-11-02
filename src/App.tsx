@@ -3925,7 +3925,10 @@ export default function App() {
                     aria-label="Terminals"
                   >
                     {panelTerminals.map((item) => (
-                      <div className="terminal-list-row" key={item.id}>
+                      <div
+                        className={`terminal-list-row${panelTerminal?.id === item.id ? " selected" : ""}`}
+                        key={item.id}
+                      >
                         <button
                           role="option"
                           aria-selected={panelTerminal?.id === item.id}
