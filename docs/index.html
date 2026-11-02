@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Owlet — Fast Project Editor for Reviewing & Editing Agent Work | 极速版项目编辑器</title>
+  <meta name="description" content="Owlet is a fast project editor built for 90% reading, 10% writing—locally or over SSH. Opens full project windows in under 10 seconds with rich Markdown preview, Mermaid, KaTeX, and Peacock project colors.">
+  <meta name="keywords" content="Owlet, agentic coding editor, fast project editor, remote SSH editor, Markdown reader for coding agents, VS Code alternative for AI agents, Claude Code viewer, Codex reader">
+  <link rel="canonical" href="https://nekoapocalypse.github.io/owlet/">
+  <meta property="og:title" content="Owlet — Fast Project Editor for Reviewing & Editing Agent Work">
+  <meta property="og:description" content="Built for 90% reading, 10% writing. Cold-start projects in under 10 seconds over SSH with zero remote bloat.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nekoapocalypse.github.io/owlet/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/NekoApocalypse/owlet/main/docs/images/workspace.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/NekoApocalypse/owlet/main/assets/icon.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Owlet",
+    "operatingSystem": "Windows",
+    "applicationCategory": "DeveloperApplication",
+    "description": "A focused reader and editor for your agents' work, locally or over SSH. Built for 90% reading, 10% writing.",
+    "url": "https://nekoapocalypse.github.io/owlet/",
+    "downloadUrl": "https://github.com/NekoApocalypse/owlet/releases",
+    "codeRepository": "https://github.com/NekoApocalypse/owlet",
+    "license": "https://opensource.org/licenses/MIT",
+    "softwareVersion": "0.1.0"
+  }
+  </script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --btn-bg: #238636;
+      --btn-hover: #2ea043;
+      --btn-sec-bg: #21262d;
+      --btn-sec-hover: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+      line-height: 1.65;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+    .hero {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .hero img.logo {
+      width: 88px;
+      height: 88px;
+      border-radius: 18px;
+    }
+    .lang-switch {
+      margin-top: 12px;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+    .lang-switch a {
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .lang-switch a:hover {
+      text-decoration: underline;
+    }
+    h1 {
+      font-size: 2.25rem;
+      margin: 16px 0 12px;
+      letter-spacing: -0.02em;
+    }
+    .cta-bar {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin: 24px 0 32px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .btn-primary {
+      background: var(--btn-bg);
+      color: #ffffff;
+      border: 1px solid rgba(240, 246, 252, 0.1);
+    }
+    .btn-primary:hover {
+      background: var(--btn-hover);
+    }
+    .btn-secondary {
+      background: var(--btn-sec-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--btn-sec-hover);
+    }
+    .demo-shot {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin: 20px 0 28px;
+      display: block;
+    }
+    h2 {
+      font-size: 1.5rem;
+      margin-top: 36px;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    p {
+      margin: 14px 0;
+    }
+    ul, ol {
+      padding-left: 24px;
+    }
+    li {
+      margin: 10px 0;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.88em;
+      background: rgba(110, 118, 129, 0.25);
+      padding: 0.2em 0.4em;
+      border-radius: 4px;
+    }
+    pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 16px;
+      overflow-x: auto;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover {
+      color: var(--accent-hover);
+      text-decoration: underline;
+    }
+    .section-divider {
+      margin: 56px 0 40px;
+      border: 0;
+      border-top: 1px solid var(--border);
+    }
+    .footer-links {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.92rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <img class="logo" src="https://raw.githubusercontent.com/NekoApocalypse/owlet/main/assets/icon.png" alt="Owlet">
+      <div class="lang-switch">
+        <a href="#cn">中文</a> | <strong><a href="#en">English</a></strong>
+      </div>
+      <h1>Owlet</h1>
+      <div class="cta-bar">
+        <a class="btn btn-primary" href="https://github.com/NekoApocalypse/owlet">View on GitHub</a>
+        <a class="btn btn-secondary" href="https://github.com/NekoApocalypse/owlet/releases">Releases</a>
+      </div>
+    </header>
+
+    <section id="en">
+      <p>Developers rarely write code by hand anymore. Agents write the code, while humans review plans, track progress, and make decisions. Yet VS Code is built for "90% writing, 10% reading", so remote connections and switching projects feel slow and heavy.</p>
+      <p><strong>Owlet</strong> is a fast project editor built for <strong>90% reading, 10% writing</strong>. In daily use, it feels 10x faster than VS Code.</p>
+
+      <p>现在人都不怎么手写代码了——Agent 负责写，人负责看方案、盯过程、做决策。但 VS Code 是按「9 分写、1 分看」设计的，连远程切项目又慢又重。</p>
+      <p>所以我做了一个 <strong>「9 分看、1 分写」</strong> 的极速项目编辑器 <strong>Owlet</strong>，日常交互体感比 VS Code 快 10 倍。</p>
+
+      <img class="demo-shot" src="images/workspace.png" alt="Owlet workspace">
+
+      <ul>
+        <li><strong>Cold-start a project in under 10 seconds.</strong> Opens a full project window in <strong>4.55 seconds</strong> over a bandwidth-limited SSH connection (<a href="https://github.com/NekoApocalypse/owlet/blob/main/docs/performance.md">test conditions</a>). Run <code>owlet .</code> in the integrated terminal to switch directories and open another project window instantly, just like <code>code .</code>.</li>
+        <li><strong>Zero-bloat SSH remote.</strong> No persistent heavy server installed on the remote host. Owlet reuses your existing SSH setup, staying responsive even on a Raspberry Pi or a bandwidth-limited jump host.</li>
+        <li><strong>Rich Markdown preview.</strong> Native rendering for math equations, Mermaid diagrams, images, and syntax-highlighted code, with split panes for reading agent-written plans and specs.</li>
+        <li><strong>Peacock project colors.</strong> Spot the right project at a glance across multiple agent windows, or import your existing VS Code Peacock color directly.</li>
+        <li><strong>Familiar VS Code workspace.</strong> File explorer, tabs, split panes, movable terminals, Vim mode, and a command palette. Open files and terminals across split panes.</li>
+      </ul>
+
+      <h2>Getting started</h2>
+      <ol>
+        <li><strong>Preferred: let your agent do it.</strong> Copy <code>https://github.com/NekoApocalypse/owlet</code> into your coding agent (Claude Code, Codex, Antigravity, or OpenCode) and ask it to build and launch Owlet.</li>
+        <li><strong>Build it yourself.</strong> Requires Windows x64, Node.js 22.12+, and npm.
+          <pre><code>npm ci
+npm run build
+npm run package</code></pre>
+          Open <code>release/Owlet/Owlet.exe</code>. Choose <strong>Open Local Folder</strong> or <strong>Connect to Remote (SSH)</strong> from the welcome screen, status bar, or command palette (<code>Ctrl+Shift+P</code>).
+        </li>
+      </ol>
+
+      <h2>Limitations</h2>
+      <ul>
+        <li><strong>Platform support:</strong> Currently <strong>Windows (x64)</strong> only. <strong>macOS and Linux</strong> users are welcome to hand this repository to their own coding agents, bring their own tokens, and contribute cross-platform support.</li>
+        <li><strong>Not yet supported:</strong> Signed installers, automatic updates, and interactive SSH password or MFA prompts. SSH hosts require Linux, Bash, Python 3, and working non-interactive authentication.</li>
+        <li><strong>Out of scope:</strong> Git UI, debugging, language servers, and an extension marketplace. Owlet is a fast, focused tool for reviewing and editing agent work, not an IDE.</li>
+        <li><strong>Current limits:</strong> UTF-8 text up to 4 MiB and raster images up to 16 MiB. Owlet bundles Electron, so a fast workflow does not mean a tiny download or memory footprint.</li>
+      </ul>
+    </section>
+
+    <hr class="section-divider">
+
+    <section id="cn">
+      <h2>Owlet — 极速版项目编辑器</h2>
+      <ul>
+        <li><strong>10 秒内冷启动项目</strong>：限速 SSH 下实测 <strong>4.55 秒</strong> 打开完整项目窗口（<a href="https://github.com/NekoApocalypse/owlet/blob/main/docs/performance.md">测试条件</a>），集成终端里直接 <code>owlet .</code> 秒切目录（体验同 <code>code .</code>）。</li>
+        <li><strong>SSH 远程不占带宽</strong>：不在远端装常驻重型 Server，直接复用现有 SSH，树莓派或限速跳板机都不卡。</li>
+        <li><strong>优秀的 Markdown 预览</strong>：原生渲染公式、Mermaid 图、图片与代码高亮，配合分屏（split pane）阅读 Agent 写的 Plan 和 Spec。</li>
+        <li><strong>Peacock 项目主题色</strong>：多开几个 Agent 窗口一眼靠颜色认出项目，支持直接导入 VS Code 现有配色。</li>
+        <li><strong>熟悉的 VS Code 工作区</strong>：文件树、标签页、分屏（split pane）、可移动终端、Vim 模式与命令面板齐备，文件与终端可在分屏间自由组合。</li>
+      </ul>
+
+      <h2>快速开始</h2>
+      <ol>
+        <li><strong>推荐方式：直接交给你的 Agent。</strong> 把本仓库地址 <code>https://github.com/NekoApocalypse/owlet</code> 丢给你常用的 Coding Agent（Claude Code、Codex、Antigravity、OpenCode 等），让它直接构建并启动 Owlet。</li>
+        <li><strong>手动构建。</strong> 环境要求：Windows x64 · Node.js 22.12+ · npm。
+          <pre><code>npm ci
+npm run build
+npm run package</code></pre>
+          打开 <code>release/Owlet/Owlet.exe</code>。通过欢迎页、状态栏或命令面板（<code>Ctrl+Shift+P</code>）选择 <strong>Open Local Folder</strong> 或 <strong>Connect to Remote (SSH)</strong>。
+        </li>
+      </ol>
+
+      <h2>当前局限</h2>
+      <ul>
+        <li><strong>平台支持</strong>：目前只做了 <strong>Windows (x64)</strong> 版本。欢迎 <strong>macOS 和 Linux</strong> 用户直接把仓库丢给自己的 Agent，自带 token 贡献跨平台兼容性。</li>
+        <li><strong>暂未支持</strong>：签名安装包、自动更新，以及交互式 SSH 密码 / MFA 弹窗。SSH 远端主机需具备 Linux、Bash、Python 3 及可用的免密（非交互式）认证。</li>
+        <li><strong>不做的功能</strong>：Git UI、调试器、LSP 语言服务与插件市场。Owlet 专注于快速审阅和轻量编辑 Agent 的产出，不做重型 IDE。</li>
+        <li><strong>当前体积与文件限制</strong>：UTF-8 文本上限 4 MiB，位图上限 16 MiB。Owlet 内置 Electron，轻量流畅指的是交互工作流，而非安装包体积或内存占用。</li>
+      </ul>
+    </section>
+
+    <footer class="footer-links">
+      <a href="https://github.com/NekoApocalypse/owlet/blob/main/docs/usage.md">Usage and configuration</a> ·
+      <a href="https://github.com/NekoApocalypse/owlet/blob/main/docs/development.md">Architecture and development</a> ·
+      <a href="https://github.com/NekoApocalypse/owlet/blob/main/docs/performance.md">Performance</a> ·
+      <a href="https://github.com/NekoApocalypse/owlet/releases">Releases</a> ·
+      <a href="https://github.com/NekoApocalypse/owlet/blob/main/LICENSE">MIT License</a> ·
+      <a href="https://github.com/NekoApocalypse/owlet">GitHub</a>
+    </footer>
+  </main>
+</body>
+</html>
