@@ -102,7 +102,11 @@ const workspace = path.resolve(__dirname, "..");
         { width, height },
       );
       await page.waitForFunction(
-        (size) => innerWidth === size.width && innerHeight === size.height,
+        // Windows can round the minimum-height frame by two CSS pixels at 125% DPI.
+        // The checks below use actual element bounds to detect clipping.
+        (size) =>
+          Math.abs(innerWidth - size.width) <= 2 &&
+          Math.abs(innerHeight - size.height) <= 2,
         { width, height },
       );
     }

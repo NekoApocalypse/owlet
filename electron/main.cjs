@@ -87,6 +87,11 @@ function sendAll(channel, payload) {
   for (const win of BrowserWindow.getAllWindows())
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
 }
+const userSettings = new (require("./settings.cjs").UserSettings)(
+  path.join(app.getPath("userData"), "settings.json"),
+);
+ipcMain.handle("settings-read", () => userSettings.read());
+ipcMain.handle("settings-save", (_, args) => userSettings.save(args));
 function openWindow(root, file, session = sessionFor()) {
   const win = new BrowserWindow({
     width: 1440,
@@ -190,11 +195,17 @@ const methods = new Set([
   "project-settings",
   "project-color",
   "import-peacock",
+  "fs-operation",
 ]);
 ipcMain.handle("remote", async (event, method, args) => {
   trusted(event);
   const connection = backend(event);
   if (!methods.has(method)) throw new Error("Unsupported operation");
+  if (method === "fs-operation")
+    args = {
+      ...args,
+      root: windows.get(event.sender.id).root || connection.state.home,
+    };
   if (method === "read") return connection.download(args);
   if (method === "image") {
     const key = JSON.stringify([connection.kind, connection.target, args]);
@@ -234,6 +245,60 @@ ipcMain.handle("remote", async (event, method, args) => {
     }
   }
   return result;
+});
+ipcMain.handle("files-import", async (event, args) => {
+  trusted(event);
+  const connection = backend(event);
+  let paths = args?.paths;
+  if (!paths) {
+    const result = await dialog.showOpenDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      {
+        title:
+          connection.kind === "ssh"
+            ? "Upload files"
+            : "Copy files into workspace",
+        properties: ["openFile", "multiSelections"],
+      },
+    );
+    if (result.canceled) return null;
+    paths = result.filePaths;
+  }
+  return require("./transfers.cjs").importFiles(
+    connection,
+    windows.get(event.sender.id).root || connection.state.home,
+    args.directory,
+    paths,
+  );
+});
+ipcMain.handle("file-download", async (event, args) => {
+  trusted(event);
+  const connection = backend(event);
+  if (connection.kind !== "ssh")
+    throw Error("Download is available in SSH workspaces.");
+  if (typeof args?.path !== "string") throw Error("Choose a remote file.");
+  let destination = args.destination,
+    allowReplace = false;
+  if (destination === undefined) {
+    const result = await dialog.showSaveDialog(
+      BrowserWindow.fromWebContents(event.sender),
+      {
+        title: "Download file",
+        defaultPath: path.basename(args.path),
+        properties: ["showOverwriteConfirmation"],
+      },
+    );
+    if (result.canceled) return null;
+    destination = result.filePath;
+    allowReplace = true;
+  }
+  return require("./transfers.cjs").downloadFile(
+    connection,
+    windows.get(event.sender.id).root || connection.state.home,
+    args.path,
+    destination,
+    allowReplace,
+  );
 });
 ipcMain.handle("new-window", (event) => {
   trusted(event);

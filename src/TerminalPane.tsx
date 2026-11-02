@@ -3,8 +3,10 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { ConnectionState, TerminalEvent, TerminalSession } from "./types";
+import type { Settings } from "./settings";
 export default function TerminalPane({
   root,
+  settings,
   connection,
   restart,
   id,
@@ -14,6 +16,7 @@ export default function TerminalPane({
   onError,
 }: {
   root: string;
+  settings: Settings;
   connection: ConnectionState;
   restart: number;
   id: string;
@@ -26,6 +29,9 @@ export default function TerminalPane({
   const surface = useRef<HTMLDivElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
   const accepting = useRef(true);
+  const updateAppearance = useRef<(() => void) | undefined>(undefined);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const callback = useRef({ onError, onStatus, onFocus, connection });
   callback.current = { onError, onStatus, onFocus, connection };
   // The React owner stays mounted. Only this imperative xterm surface moves;
@@ -92,10 +98,10 @@ export default function TerminalPane({
     };
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 12,
-      fontFamily: '"Cascadia Code", Consolas, monospace',
-      lineHeight: 1.2,
-      scrollback: 3000,
+      fontSize: settingsRef.current["terminal.fontSize"],
+      fontFamily: settingsRef.current["terminal.fontFamily"],
+      lineHeight: settingsRef.current["terminal.lineHeight"],
+      scrollback: settingsRef.current["terminal.scrollback"],
       theme: {
         background: "#002451",
         foreground: "#ffffff",
@@ -191,7 +197,7 @@ export default function TerminalPane({
       if ((event as CustomEvent).detail.id === id) term.focus();
     };
     window.addEventListener("owlet-terminal-focus", focus);
-    const observer = new ResizeObserver(() => {
+    const resize = () => {
       if (disposed || !host.current?.clientWidth || !host.current.clientHeight)
         return;
       fit.fit();
@@ -201,10 +207,19 @@ export default function TerminalPane({
           cols: term.cols,
           rows: term.rows,
         });
-    });
+    };
+    updateAppearance.current = () => {
+      term.options.fontSize = settingsRef.current["terminal.fontSize"];
+      term.options.fontFamily = settingsRef.current["terminal.fontFamily"];
+      term.options.lineHeight = settingsRef.current["terminal.lineHeight"];
+      term.options.scrollback = settingsRef.current["terminal.scrollback"];
+      resize();
+    };
+    const observer = new ResizeObserver(resize);
     observer.observe(host.current!);
     return () => {
       disposed = true;
+      updateAppearance.current = undefined;
       observer.disconnect();
       input.dispose();
       window.removeEventListener("owlet-terminal-input", commandInput);
@@ -215,5 +230,8 @@ export default function TerminalPane({
       term.dispose();
     };
   }, [id, root, restart]);
+  useEffect(() => {
+    updateAppearance.current?.();
+  }, [settings]);
   return <div ref={parking} style={{ display: "none" }} aria-hidden="true" />;
 }

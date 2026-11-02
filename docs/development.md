@@ -100,3 +100,43 @@ Dependency licenses remain applicable. The portable package preserves Electron's
 - [Command registry](../src/commands.tsx)
 - [Workspace UI](../src/App.tsx)
 - [Path handling](../src/types.ts)
+
+## Preferences and preview reading
+
+`electron/settings-schema.json` defines labels, defaults, types (via the default), and bounds for the settings UI and backend.
+`src/settings.ts` derives the TypeScript settings model and preserves JSONC comments with `jsonc-parser` edits.
+`electron/settings.cjs` owns the local user file, validates writes, and checks content revisions before atomic replacement.
+The virtual Settings document shares the ordinary dirty-tab/save/conflict flow but never goes through the SSH backend.
+Editor fonts use CSS variables and a word-wrap compartment; terminal options update the existing xterm instance and refit its PTY.
+
+Preview find uses MIT-licensed `mark.js` within the rendered article only. Math, SVG, and diagram subtrees are excluded.
+The small event adapter in `previewFindCommands.ts` connects independent mounted previews to the command registry without
+moving search state into the whole workspace. Preview zoom is window state, separate from saved reading fonts and application zoom.
+
+Focused checks: `node --test tests/settings.test.cjs` and `node tests/preview-settings.cjs` (after `npm run build`).
+
+## Background file index and filesystem actions
+
+`src/QuickOpen.tsx` owns a bounded, cancellable metadata scan: startup delay, one page in flight, yielding between pages,
+and a pause while foreground file work is busy. Roots/settings/revisions cancel obsolete scans. Cached results remain
+searchable during refresh. The hook never downloads file contents. The command registry exposes both the picker and results.
+
+`electron/file-operations.cjs` and `remote/bridge.py` enforce workspace paths, parent realpaths, expected metadata revisions,
+and no-overwrite moves. Windows local moves use .NET's non-overwriting operation through a hidden subprocess; UTF-8 JSON
+carries paths on stdin, without interpolating shell code. Linux remote moves use `renameat2(RENAME_NOREPLACE)`.
+`electron/transfers.cjs` streams local/SSH transfers via temporary files; completed uploads publish with a no-overwrite hard
+link. Aborted sessions clean up temporary files; process crashes can leave them. Native Save As replacement rechecks the
+existing destination revision. As with ordinary saves, these checks cannot lock out unrelated external writers in every
+check-to-operation interval; directory deletion does not snapshot or lock a tree against concurrent external changes.
+
+Vim's existing engine supplies search/substitution and history. Small Ex adapters route saves, save-all, and reloads through
+the existing file commands. Reload checks the buffer again after reading so it cannot overwrite newer typing. File operations
+hold save locks while pending; new edits arriving during deletion stay in a missing-file buffer.
+
+## Portable releases
+
+The canonical binary distribution is a Windows x64 portable ZIP. Build from the release tag with `npm ci`, `npm run build`,
+and `npm run package -- --no-shortcuts`. The flag packages the app without creating or modifying local shortcuts. Archive
+the resulting `release/Owlet` directory as `Owlet-v<VERSION>-windows-x64.zip` and publish its SHA-256 checksum alongside it.
+Users extract the complete folder and run `Owlet.exe`; Node.js is not needed. App preferences remain in the Windows user
+profile. Close older Owlet instances before switching builds; there is no automatic updater.

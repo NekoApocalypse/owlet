@@ -24,26 +24,31 @@ export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
 export default function Explorer({
   root,
   selected,
+  cutPath,
   revision,
   onOpen,
   onFolder,
   onRefresh,
   onError,
   onCommand,
+  onContext,
 }: {
   root: string;
   selected?: string;
+  cutPath?: string;
   revision: number;
   onOpen(path: string): void;
   onFolder(): void;
   onRefresh(): void;
   onError(message: string): void;
   onCommand(id: string, args?: Record<string, unknown>): void;
+  onContext(path: string, directory: boolean, x: number, y: number): void;
 }) {
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [hidden, setHidden] = useState(false);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [rootError, setRootError] = useState("");
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
@@ -84,6 +89,26 @@ export default function Explorer({
           ]),
       ),
     );
+  }
+  function drop(event: React.DragEvent, directory: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDropTarget(null);
+    if (event.dataTransfer.files.length) {
+      onCommand("file.import", {
+        directory,
+        paths: window.lwr.droppedPaths(Array.from(event.dataTransfer.files)),
+      });
+      return;
+    }
+    const raw =
+      event.dataTransfer.getData("application/owlet-file") ||
+      event.dataTransfer.getData("application/lwr-tab");
+    if (!raw) return;
+    try {
+      const { path } = JSON.parse(raw);
+      onCommand("file.move", { path, directory });
+    } catch {}
   }
   async function load(path: string, offset = 0) {
     if (!path || currentRoot.current !== root) return;
@@ -238,11 +263,68 @@ export default function Explorer({
           .map((entry) => (
             <div key={entry.path}>
               <button
-                className={`tree-row ${selected === entry.path ? "selected" : ""}`}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "copyMove";
+                  event.dataTransfer.setData(
+                    "application/owlet-file",
+                    JSON.stringify({
+                      path: entry.path,
+                      directory: entry.directory,
+                    }),
+                  );
+                }}
+                onDragEnd={() => setDropTarget(null)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setDropTarget(entry.directory ? entry.path : path);
+                  event.dataTransfer.dropEffect =
+                    event.dataTransfer.types.includes("Files")
+                      ? "copy"
+                      : "move";
+                }}
+                onDrop={(event) =>
+                  drop(event, entry.directory ? entry.path : path)
+                }
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onContext(
+                    entry.path,
+                    entry.directory,
+                    event.clientX,
+                    event.clientY,
+                  );
+                }}
+                className={`tree-row ${selected === entry.path ? "selected" : ""} ${cutPath === entry.path ? "cut-item" : ""} ${dropTarget === entry.path && entry.directory ? "drop-target" : ""}`}
                 style={{
                   paddingLeft: `calc(var(--space-8) + ${depth} * var(--space-12))`,
                 }}
                 title={entry.path}
+                onKeyDown={(event) => {
+                  if (
+                    !(event.ctrlKey || event.metaKey) ||
+                    event.altKey ||
+                    event.shiftKey
+                  )
+                    return;
+                  const action = (
+                    { x: "cut", c: "copy", v: "paste" } as Record<
+                      string,
+                      string
+                    >
+                  )[event.key.toLowerCase()];
+                  if (!action) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onCommand(
+                    `file.${action}`,
+                    action === "paste"
+                      ? { directory: entry.directory ? entry.path : path }
+                      : { path: entry.path },
+                  );
+                }}
                 onClick={() =>
                   entry.directory
                     ? onCommand("explorer.toggleFolder", { path: entry.path })
@@ -288,7 +370,29 @@ export default function Explorer({
     );
   }
   return (
-    <aside className="explorer">
+    <aside
+      className="explorer"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        if (root) onContext(root, true, event.clientX, event.clientY);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDropTarget(root);
+        event.dataTransfer.dropEffect = event.dataTransfer.types.includes(
+          "Files",
+        )
+          ? "copy"
+          : "move";
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setDropTarget(null);
+      }}
+      onDrop={(event) => {
+        if (root) drop(event, root);
+      }}
+    >
       <div className="section-label">
         <span>EXPLORER</span>
         <div className="actions">
@@ -308,7 +412,10 @@ export default function Explorer({
           </button>
         </div>
       </div>
-      <div className="project-label" title={root}>
+      <div
+        className={`project-label ${dropTarget === root ? "drop-target" : ""}`}
+        title={root}
+      >
         <ChevronDown size={14} />
         <span>{root ? basename(root) : "No folder opened"}</span>
       </div>

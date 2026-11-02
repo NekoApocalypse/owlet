@@ -21,8 +21,12 @@ const { execFileSync } = require("node:child_process");
   );
   const appDir = path.join(destination, "resources", "app");
   fs.mkdirSync(appDir, { recursive: true });
+  fs.copyFileSync(
+    path.join(root, "node_modules/mark.js/LICENSE"),
+    path.join(destination, "LICENSE.mark.js"),
+  );
   // node-pty ships its native ConPTY binaries; no Node or compiler is needed by users.
-  for (const moduleName of ["node-pty"]) {
+  for (const moduleName of ["node-pty", "jsonc-parser"]) {
     fs.cpSync(
       path.join(root, "node_modules", moduleName),
       path.join(appDir, "node_modules", moduleName),
@@ -88,7 +92,9 @@ const { execFileSync } = require("node:child_process");
   }
   // Keep the portable README's images, examples and public documentation usable.
   for (const relative of [
+    "README_CN.md",
     "AGENTS.md",
+    "docs/reviews",
     "assets/icon.png",
     "examples",
     "docs/images",
@@ -98,6 +104,7 @@ const { execFileSync } = require("node:child_process");
     "docs/spacing.md",
     "docs/performance.md",
   ]) {
+    if (relative === "README_CN.md" && !fs.existsSync(path.join(root, relative))) continue;
     const output = path.join(destination, relative);
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.cpSync(path.join(root, relative), output, { recursive: true });
@@ -138,20 +145,26 @@ const { execFileSync } = require("node:child_process");
   }
   resources.outputResource(executable);
   fs.writeFileSync(target, Buffer.from(executable.generate()));
-  const shortcutEnv = { ...process.env };
-  delete shortcutEnv.ELECTRON_RUN_AS_NODE;
-  execFileSync(
-    require("electron"),
-    [path.join(__dirname, "install-shortcuts.cjs")],
-    {
-      env: shortcutEnv,
-      stdio: "inherit",
-      windowsHide: true,
-    },
-  );
-  const shortcut = JSON.parse(
-    fs.readFileSync(path.join(root, "artifacts/shortcut-results.json"), "utf8"),
-  ).find((item) => path.basename(item.link) === "Owlet.lnk").link;
+  let shortcut = null;
+  if (!process.argv.includes("--no-shortcuts")) {
+    const shortcutEnv = { ...process.env };
+    delete shortcutEnv.ELECTRON_RUN_AS_NODE;
+    execFileSync(
+      require("electron"),
+      [path.join(__dirname, "install-shortcuts.cjs")],
+      {
+        env: shortcutEnv,
+        stdio: "inherit",
+        windowsHide: true,
+      },
+    );
+    shortcut = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "artifacts/shortcut-results.json"),
+        "utf8",
+      ),
+    ).find((item) => path.basename(item.link) === "Owlet.lnk").link;
+  }
   console.log(
     JSON.stringify(
       { executable: target, shortcut, package: destination },

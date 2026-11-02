@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import PreviewFind from "./PreviewFind";
 import MarkdownIt from "markdown-it";
 import katex from "katex";
 import DOMPurify from "dompurify";
@@ -167,7 +168,11 @@ export default function Preview({
   onOpen,
   onCommand,
   refresh = 0,
+  group,
+  zoom,
 }: {
+  group: number;
+  zoom: number;
   text: string;
   path: string;
   root: string;
@@ -176,6 +181,27 @@ export default function Preview({
   refresh?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const pane = useRef<HTMLDivElement>(null);
+  const commands = useRef(onCommand);
+  commands.current = onCommand;
+  useEffect(() => {
+    let lastStep = 0;
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey || !event.deltaY) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const now = performance.now();
+      if (now - lastStep < 60) return;
+      lastStep = now;
+      commands.current(
+        event.deltaY < 0 ? "preview.zoom.in" : "preview.zoom.out",
+      );
+    };
+    const element = pane.current!;
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => element.removeEventListener("wheel", wheel);
+  }, []);
   const html = useMemo(
     () =>
       DOMPurify.sanitize(md.render(text), {
@@ -275,40 +301,105 @@ export default function Preview({
     };
   }, [html, path, root, refresh]);
   return (
-    <article
-      className="markdown-preview"
-      ref={container}
-      dangerouslySetInnerHTML={{ __html: html }}
-      onClick={(event) => {
-        const expand = (event.target as HTMLElement).closest(".diagram-expand");
-        if (expand) {
-          onCommand("diagram.open", {
-            index: Number(expand.parentElement!.dataset.diagramIndex),
-          });
-          return;
-        }
-        const link = (event.target as HTMLElement).closest("a");
-        if (!link) return;
-        event.preventDefault();
-        const href = link.getAttribute("href") || "";
-        if (href.startsWith("#")) {
-          onCommand("markdown.heading", {
-            id: decodeURIComponent(href.slice(1)),
-          });
-          return;
-        }
-        if (/^https?:/i.test(href)) {
-          onCommand("link.openExternal", { url: href });
-          return;
-        }
-        if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:[\\/]/i.test(href))
-          return;
-        try {
-          onOpen(
-            resolvePath(dirname(path), decodeURIComponent(href.split("#")[0])),
+    <div
+      className="preview-pane"
+      ref={pane}
+      data-preview-group={group}
+      onKeyDown={(event) => {
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          ["+", "=", "-", "0"].includes(event.key)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          onCommand(
+            event.key === "0"
+              ? "preview.zoom.reset"
+              : event.key === "-"
+                ? "preview.zoom.out"
+                : "preview.zoom.in",
           );
-        } catch {}
+          return;
+        }
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === "f"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          onCommand("preview.find");
+        }
       }}
-    />
+    >
+      <PreviewFind
+        container={container}
+        viewport={viewport}
+        revision={html}
+        path={path}
+        group={group}
+        onCommand={onCommand}
+      />
+      {zoom !== 1 && (
+        <button
+          className="preview-zoom"
+          title="Reset preview zoom (Ctrl+0)"
+          aria-label="Reset preview zoom"
+          onClick={() => onCommand("preview.zoom.reset")}
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+      )}
+      <div className="preview-scroll" ref={viewport}>
+        <article
+          className="markdown-preview"
+          style={{ zoom }}
+          tabIndex={0}
+          aria-label="Markdown preview"
+          ref={container}
+          dangerouslySetInnerHTML={{ __html: html }}
+          onClick={(event) => {
+            const expand = (event.target as HTMLElement).closest(
+              ".diagram-expand",
+            );
+            if (expand) {
+              onCommand("diagram.open", {
+                index: Number(expand.parentElement!.dataset.diagramIndex),
+              });
+              return;
+            }
+            const link = (event.target as HTMLElement).closest("a");
+            if (!link) return;
+            event.preventDefault();
+            const href = link.getAttribute("href") || "";
+            if (href.startsWith("#")) {
+              onCommand("markdown.heading", {
+                id: decodeURIComponent(href.slice(1)),
+              });
+              return;
+            }
+            if (/^https?:/i.test(href)) {
+              onCommand("link.openExternal", { url: href });
+              return;
+            }
+            if (
+              /^[a-z][a-z0-9+.-]*:/i.test(href) &&
+              !/^[a-z]:[\\/]/i.test(href)
+            )
+              return;
+            try {
+              onOpen(
+                resolvePath(
+                  dirname(path),
+                  decodeURIComponent(href.split("#")[0]),
+                ),
+              );
+            } catch {}
+          }}
+        />
+      </div>
+    </div>
   );
 }

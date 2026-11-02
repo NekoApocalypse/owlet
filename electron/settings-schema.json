@@ -1,0 +1,106 @@
+{
+  "editor.fontSize": {
+    "group": "Editor",
+    "label": "Font size",
+    "description": "Source text size in pixels.",
+    "default": 13,
+    "min": 8,
+    "max": 40
+  },
+  "editor.fontFamily": {
+    "group": "Editor",
+    "label": "Font family",
+    "description": "Installed fonts, in fallback order. Owlet does not download fonts.",
+    "default": "\"Cascadia Code\", Consolas, monospace"
+  },
+  "editor.lineHeight": {
+    "group": "Editor",
+    "label": "Line height",
+    "description": "Line spacing as a multiple of font size.",
+    "default": 1.75,
+    "min": 1,
+    "max": 3,
+    "step": 0.05
+  },
+  "editor.wordWrap": {
+    "group": "Editor",
+    "label": "Word wrap",
+    "description": "Wrap long source lines to the editor width.",
+    "default": true
+  },
+  "editor.vimMode": {
+    "group": "Editor",
+    "label": "Vim mode",
+    "description": "Use Vim keybindings in source and settings JSON editors.",
+    "default": false
+  },
+  "preview.fontSize": {
+    "group": "Markdown preview",
+    "label": "Font size",
+    "description": "Reading text size in pixels. Headings and code scale with it.",
+    "default": 14,
+    "min": 8,
+    "max": 40
+  },
+  "preview.fontFamily": {
+    "group": "Markdown preview",
+    "label": "Font family",
+    "description": "Installed fonts for reading Markdown.",
+    "default": "\"Segoe UI\", system-ui, sans-serif"
+  },
+  "preview.lineHeight": {
+    "group": "Markdown preview",
+    "label": "Line height",
+    "description": "Reading line spacing as a multiple of font size.",
+    "default": 1.65,
+    "min": 1,
+    "max": 3,
+    "step": 0.05
+  },
+  "markdown.defaultView": {
+    "group": "Markdown preview",
+    "label": "Default view",
+    "description": "View used when opening a Markdown file. Existing tabs keep their view.",
+    "default": "preview",
+    "enum": ["preview", "source", "both"]
+  },
+  "terminal.fontSize": {
+    "group": "Terminal",
+    "label": "Font size",
+    "description": "Terminal text size in pixels. Applies without restarting shells.",
+    "default": 12,
+    "min": 8,
+    "max": 40
+  },
+  "terminal.fontFamily": {
+    "group": "Terminal",
+    "label": "Font family",
+    "description": "Use an installed monospace font for terminal alignment.",
+    "default": "\"Cascadia Code\", Consolas, monospace"
+  },
+  "terminal.lineHeight": {
+    "group": "Terminal",
+    "label": "Line height",
+    "description": "Terminal line spacing as a multiple of font size.",
+    "default": 1.2,
+    "min": 1,
+    "max": 3,
+    "step": 0.05
+  },
+  "terminal.scrollback": {
+    "group": "Terminal",
+    "label": "Scrollback",
+    "description": "Retained terminal lines. Reducing this discards older scrollback.",
+    "default": 3000,
+    "min": 0,
+    "max": 100000
+  },
+  "files.quickOpenMaxDepth": {
+    "group": "Files",
+    "label": "Quick Open maximum depth",
+    "description": "Subdirectory levels to index for Ctrl+P. 0 searches the workspace root only. Indexing runs in the background.",
+    "default": 5,
+    "min": 0,
+    "max": 20
+  }
+}

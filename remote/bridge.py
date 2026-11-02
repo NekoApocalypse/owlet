@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 import urllib.parse
+import stat as stat_module
 
 output_lock = threading.Lock()
 terminals = {}
@@ -310,7 +311,153 @@ def start_terminal(args):
     threading.Thread(target=terminal_output, args=(identifier, process, fd), daemon=True).start()
     return {"terminal": identifier}
 
+uploads = {}
+downloads = {}
+
+def fs_scoped(root, path, allow_root=False):
+    if not isinstance(root, str) or not isinstance(path, str) or not os.path.isabs(root) or not os.path.isabs(path) or "\x00" in path:
+        raise ValueError("Choose an absolute workspace path")
+    root, path = os.path.abspath(root), os.path.abspath(path)
+    if os.path.commonpath([root, path]) != root or (not allow_root and path == root):
+        raise ValueError("Choose an item inside the workspace; the root cannot be changed")
+    parent = os.path.realpath(path if allow_root else os.path.dirname(path))
+    if os.path.commonpath([os.path.realpath(root), parent]) != os.path.realpath(root):
+        raise ValueError("This path leaves the workspace through a symbolic link")
+    return path
+
+def fs_name(directory, name):
+    if not isinstance(name, str) or not name.strip() or name in (".", "..") or any(c in name for c in ("/", "\\", "\x00")) or len(name) > 255:
+        raise ValueError("Enter a single file or folder name")
+    return os.path.join(directory, name)
+
+def fs_info(path):
+    s = os.lstat(path)
+    return {"path": path, "directory": stat_module.S_ISDIR(s.st_mode), "symlink": stat_module.S_ISLNK(s.st_mode), "revision": f"{s.st_dev}:{s.st_ino}:{s.st_mtime_ns}:{s.st_ctime_ns}:{s.st_size}", "size": s.st_size}
+
+def move_no_replace(path, destination):
+    # Linux renameat2 supplies atomic no-replace for directories and symlinks.
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(libc, "renameat2", None)
+    if rename is None: raise ValueError("Safe moves require renameat2 on this server")
+    if rename(-100, os.fsencode(path), -100, os.fsencode(destination), 1) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), destination)
+
+def copy_tree(source, destination, budget):
+    budget[0] += 1
+    if budget[0] > 20000: raise ValueError('Copy is limited to 20,000 files and folders at a time')
+    before = fs_info(source)
+    if before['symlink']: raise ValueError('Copying symbolic links is not supported yet')
+    if before['directory']:
+        os.mkdir(destination)
+        for name in os.listdir(source): copy_tree(os.path.join(source,name), os.path.join(destination,name), budget)
+    else:
+        if not stat_module.S_ISREG(os.lstat(source).st_mode): raise ValueError('Copy regular files and folders only')
+        shutil.copy2(source, destination)
+    if fs_info(source)['revision'] != before['revision']: raise ValueError('Source changed during copy; retry')
+
+def fs_operation(args):
+    op = args["op"]
+    if op in ("create-file", "create-folder"):
+        path = fs_name(fs_scoped(args["root"], args["directory"], True), args["name"])
+        if op == "create-folder": os.mkdir(path)
+        else:
+            with open(path, "xb"): pass
+        return fs_info(path)
+    path = fs_scoped(args["root"], args["path"])
+    current = fs_info(path)
+    if op == "inspect": return current
+    if args.get("revision") != current["revision"]:
+        raise ValueError("The selected item changed. Review the action again")
+    if op == "copy":
+        destination = fs_scoped(args['root'], args['destination'])
+        if os.path.commonpath([path,destination]) == path: raise ValueError('A folder cannot be copied into itself')
+        if os.path.lexists(destination): raise ValueError('Destination already exists. Choose another name')
+        staging = tempfile.mkdtemp(prefix='.owlet-copy-',dir=os.path.dirname(destination))
+        try:
+            copied = os.path.join(staging,'content')
+            copy_tree(path,copied,[0])
+            move_no_replace(copied,destination)
+            return fs_info(destination)
+        finally: shutil.rmtree(staging,ignore_errors=True)
+    if op == "delete":
+        if current["directory"] and not current["symlink"]: shutil.rmtree(path)
+        else: os.unlink(path)
+        return {"path": path}
+    if op == "move":
+        destination = fs_scoped(args["root"], args["destination"])
+        if os.path.commonpath([path, destination]) == path: raise ValueError("A folder cannot be moved into itself")
+        if os.path.lexists(destination): raise ValueError("Destination already exists. Choose another name")
+        move_no_replace(path, destination)
+        return {**fs_info(destination), "previous": path}
+    raise ValueError("Unsupported file action")
+
+def file_transfer(method, args):
+    if method == "upload-start":
+        if len(uploads) >= 4: raise ValueError("Too many transfers")
+        size = args["size"]
+        if not isinstance(size, int) or size < 0: raise ValueError("Invalid file size")
+        directory = fs_scoped(args["root"], args["directory"], True)
+        destination = fs_name(directory, args["name"])
+        if os.path.lexists(destination): raise ValueError("Destination already exists. Choose another name")
+        token = uuid.uuid4().hex
+        temp = os.path.join(directory, ".owlet-upload-" + token)
+        file = open(temp, "xb")
+        uploads[token] = {"file": file, "temp": temp, "destination": destination, "size": size, "offset": 0}
+        return {"token": token}
+    if method.startswith("upload-"):
+        item = uploads[args["token"]]
+        if method == "upload-chunk":
+            data = base64.b64decode(args["data"], validate=True)
+            if args["offset"] != item["offset"] or len(data) > 16384 or item["offset"] + len(data) > item["size"]: raise ValueError("Invalid upload chunk")
+            item["file"].write(data)
+            item["offset"] += len(data)
+            return {"offset": item["offset"]}
+        try:
+            if method == "upload-finish":
+                if item["offset"] != item["size"]: raise ValueError("Incomplete upload")
+                item["file"].flush()
+                os.fsync(item["file"].fileno())
+                os.link(item["temp"], item["destination"])
+                return {"path": item["destination"]}
+            if method != "upload-abort": raise ValueError("Unknown transfer action")
+        finally:
+            item["file"].close()
+            os.unlink(item["temp"])
+            uploads.pop(args["token"], None)
+        return None
+    if method == "download-open":
+        if len(downloads) >= 4: raise ValueError("Too many transfers")
+        path = fs_scoped(args["root"], args["path"])
+        before = fs_info(path)
+        if before["symlink"] or before["directory"]: raise ValueError("Download a regular file, not a folder or symbolic link")
+        file = os.fdopen(os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW), "rb")
+        if not stat_module.S_ISREG(os.fstat(file.fileno()).st_mode):
+            file.close()
+            raise ValueError("Download a regular file")
+        token = uuid.uuid4().hex
+        downloads[token] = {"file": file, "path": path, "revision": before["revision"], "size": before["size"]}
+        return {"token": token, "size": before["size"]}
+    if method.startswith("download-"):
+        item = downloads[args["token"]]
+        if method == "download-chunk":
+            item["file"].seek(max(0, int(args["offset"])))
+            return {"data": base64.b64encode(item["file"].read(16384)).decode("ascii")}
+        try:
+            if method == "download-finish" and fs_info(item["path"])["revision"] != item["revision"]:
+                raise ValueError("File changed during download; retry")
+        finally:
+            item["file"].close()
+            downloads.pop(args["token"], None)
+        return None
+    raise ValueError("Unsupported transfer action")
+
 def dispatch(method, args):
+    if method == "fs-operation":
+        with save_lock: return fs_operation(args)
+    if method.startswith(("upload-", "download-")):
+        with save_lock: return file_transfer(method, args)
     if method == "import-peacock":
         return import_peacock(args)
     if method == "project-settings":
@@ -476,4 +623,8 @@ finally:
         except ProcessLookupError:
             pass
     pool.shutdown(wait=True)
+    for token in list(uploads):
+        try: file_transfer("upload-abort", {"token": token})
+        except OSError: pass
+    for item in downloads.values(): item["file"].close()
     shutil.rmtree(session_dir, ignore_errors=True)

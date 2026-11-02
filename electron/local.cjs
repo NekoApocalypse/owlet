@@ -194,6 +194,7 @@ class LocalConnection extends EventEmitter {
     this.kind = "local";
     this.target = "Local";
     this.terminals = new Map();
+    this.files = new (require("./file-operations.cjs").FileOperations)();
     this.state = {
       kind: "local",
       status: "connected",
@@ -209,6 +210,8 @@ class LocalConnection extends EventEmitter {
     return this.state;
   }
   async request(method, args = {}) {
+    if (method === "fs-operation") return this.files.operation(args);
+    if (method.startsWith("upload-")) return this.files.transfer(method, args);
     if (method === "stat") return stat(args.path);
     if (method === "stats")
       return args.paths.slice(0, 200).map((file) => {
@@ -413,6 +416,7 @@ class LocalConnection extends EventEmitter {
     else if (method === "terminal-close") term.kill();
   }
   close() {
+    this.files.close();
     for (const terminal of this.terminals.values()) terminal.kill();
     this.terminals.clear();
     if (
