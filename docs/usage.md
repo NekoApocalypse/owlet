@@ -207,6 +207,13 @@ External agent renames still leave open tabs at their original paths. Existing t
 file moves do not restart shells or change their directory. Local moves currently require Windows; remote moves require
 Linux with `renameat2`. No overwrite, recursive upload, cross-workspace drag, drag reordering, or multi-selection is included.
 
+## Source highlighting
+
+Source editors highlight Markdown structure, inline code, links, and fenced code. File extensions and fence language names
+are case-insensitive, including `.MD` and `.mdown`. Common code/configuration files use local syntax parsers: JavaScript,
+TypeScript, Python, HTML, CSS, JSON, YAML, shell, PowerShell, C/C++, C#, Java, Kotlin, Rust, Go, SQL, TOML, Dockerfiles, and diff.
+Unknown languages stay readable as plain text. This is token highlighting, without language servers or semantic analysis.
+
 ## Everyday Vim
 
 Enable Vim in Settings or from the command palette. The Vim command line uses the source editor's font size.
