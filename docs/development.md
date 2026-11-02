@@ -115,6 +115,19 @@ moving search state into the whole workspace. Preview zoom is window state, sepa
 
 Focused checks: `node --test tests/settings.test.cjs` and `node tests/preview-settings.cjs` (after `npm run build`).
 
+## Editor highlighting and terminal capabilities
+
+`src/editorLanguages.ts` shares lightweight CodeMirror parsers between source files and Markdown fences. Extension and
+fence aliases are case-insensitive; unknown languages remain plain text. Token colors live in `src/Editor.tsx`.
+
+Keep the production build target at ES2021 or newer. Downleveling xterm 6's logical assignment under the current esbuild
+minifier corrupts its DECRQM handler and stalls rendering when a TUI queries terminal modes.
+See [xterm issue #5800](https://github.com/xtermjs/xterm.js/issues/5800).
+
+After `npm run build`, run `node tests/editor-highlighting.cjs` and `node tests/terminal-capabilities.cjs`.
+The latter exercises real PTY mode replies, keyboard input, and shell recovery locally and, when `OWLET_SSH_TARGET` is set,
+over SSH. Use `LWR_PACKAGED` to verify the portable executable. Development-server testing alone cannot catch this build bug.
+
 ## Background file index and filesystem actions
 
 `src/QuickOpen.tsx` owns a bounded, cancellable metadata scan: startup delay, one page in flight, yielding between pages,

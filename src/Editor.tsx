@@ -22,7 +22,6 @@ import {
   HighlightStyle,
   syntaxHighlighting,
   indentOnInput,
-  StreamLanguage,
 } from "@codemirror/language";
 import {
   searchKeymap,
@@ -37,14 +36,7 @@ import {
   SearchQuery,
   setSearchQuery,
 } from "@codemirror/search";
-import { markdown } from "@codemirror/lang-markdown";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { json } from "@codemirror/lang-json";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { yaml } from "@codemirror/lang-yaml";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { editorLanguage } from "./editorLanguages";
 import {
   vim,
   Vim,
@@ -58,18 +50,33 @@ import type { Settings } from "./settings";
 const tomorrowHighlight = HighlightStyle.define([
   { tag: tags.comment, color: "#7285b7" },
   { tag: tags.keyword, color: "#ebbbff" },
-  { tag: [tags.string, tags.heading], color: "#d1f1a9" },
+  { tag: tags.string, color: "#d1f1a9" },
+  { tag: tags.heading, color: "#d1f1a9", fontWeight: "bold" },
   { tag: [tags.number, tags.bool, tags.null], color: "#ffc58f" },
   {
-    tag: [tags.variableName, tags.tagName, tags.attributeName],
+    tag: [
+      tags.variableName,
+      tags.tagName,
+      tags.attributeName,
+      tags.propertyName,
+    ],
     color: "#ff9da4",
   },
   { tag: [tags.typeName, tags.className], color: "#ffeead" },
   { tag: tags.function(tags.variableName), color: "#bbdaff" },
   { tag: [tags.operator, tags.regexp], color: "#99ffff" },
-  { tag: tags.link, color: "#bbdaff", textDecoration: "underline" },
+  { tag: [tags.link, tags.url], color: "#bbdaff", textDecoration: "underline" },
   { tag: tags.strong, fontWeight: "bold" },
   { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.monospace, color: "#ffc58f" },
+  { tag: [tags.processingInstruction, tags.meta], color: "#99ffff" },
+  { tag: tags.labelName, color: "#ffeead" },
+  { tag: tags.quote, color: "#bbdaff", fontStyle: "italic" },
+  { tag: tags.contentSeparator, color: "#7285b7" },
+  { tag: tags.strikethrough, color: "#7285b7", textDecoration: "line-through" },
+  { tag: tags.escape, color: "#99ffff" },
+  { tag: tags.inserted, color: "#d1f1a9" },
+  { tag: [tags.deleted, tags.invalid], color: "#ff9da4" },
 ]);
 
 const commands = new WeakMap<
@@ -234,22 +241,6 @@ const theme = EditorView.theme(
   },
   { dark: true },
 );
-function language(path: string) {
-  if (/\.(md|markdown)$/.test(path)) return markdown();
-  if (/\.[cm]?[jt]sx?$/.test(path))
-    return javascript({
-      typescript: /\.tsx?$/.test(path),
-      jsx: /x$/.test(path),
-    });
-  if (/\.py$/.test(path)) return python();
-  if (/\.json$/.test(path)) return json();
-  if (/\.html?$/.test(path)) return html();
-  if (/\.css$/.test(path)) return css();
-  if (/\.ya?ml$/.test(path)) return yaml();
-  if (/\.(sh|bash)$/.test(path) || /\/(\.bashrc|\.bash_profile)$/.test(path))
-    return StreamLanguage.define(shell);
-  return [];
-}
 export default function Editor({
   path,
   cacheKey = path,
@@ -313,7 +304,7 @@ export default function Editor({
         indentWithTab,
       ]),
       syntaxHighlighting(tomorrowHighlight),
-      language(path),
+      editorLanguage(path),
       theme,
       wrapCompartment.current.of(wordWrap ? EditorView.lineWrapping : []),
       EditorView.domEventHandlers({

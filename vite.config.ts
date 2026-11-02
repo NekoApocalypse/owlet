@@ -12,5 +12,12 @@ export default defineConfig({
   ],
   base: "./",
   server: { host: "127.0.0.1", port: 5173, strictPort: true },
-  build: { chunkSizeWarningLimit: 1800, reportCompressedSize: false },
+  build: {
+    // Electron supports ES2021. Older targets trigger an esbuild lowering bug
+    // in xterm 6's DECRQM handler, permanently stalling terminal rendering.
+    // https://github.com/xtermjs/xterm.js/issues/5800
+    target: "es2021",
+    chunkSizeWarningLimit: 1800,
+    reportCompressedSize: false,
+  },
 });
