@@ -101,3 +101,27 @@ Settings JSON can also be edited via `editor.setText` and inspected through `fil
 individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you
 to finish unsaved Settings edits first so a shortcut cannot silently save unrelated edits. Direct text entry and settings
 search remain widget interactions; their submitted changes use the same commands as agent calls.
+
+## Quick Open, files, and Vim
+
+| Action | Command and arguments |
+| --- | --- |
+| Fuzzy Quick Open / inspect results | `file.quickOpen({query?})` (Ctrl+P); `file.search({query, limit?})` returns `matches`, `loading`, `limited`, `errors`, `indexed`; omit query to open the picker |
+| Restart background index | `file.index.refresh`; depth is controlled by `files.quickOpenMaxDepth` |
+| Create | `file.newFile({directory?, name?})`, `file.newFolder({directory?, name?})`; omitted name prompts |
+| File clipboard | `file.cut({path?})`, `file.copy({path?})`, `file.paste({directory?})`; `workspace.state().fileClipboard` reports the current item; Cut/Paste confirms a move |
+| Copy path | `file.copyPath({path?})`, `file.copyRelativePath({path?})`; default is the current file |
+| Rename / move | `file.rename({path?, name?})`, `file.move({path?, directory?, destination?})`; a directory retains the basename, destination is a complete path; omitted destination/name prompts |
+| Delete | `file.delete({path?})`; deletion is permanent and always confirms |
+| Copy/upload local files | `file.import({directory?, paths?})`; paths are absolute local regular files; omission opens a native picker |
+| Download from SSH | `file.download({path?, destination?})`; omit destination for Save As; explicit destination must not exist |
+| Reload current/open file | `file.reload({path?, discard?})`; refuses dirty buffers unless discard is explicitly true; `file.revert` presents a confirmation first |
+| Execute a Vim Ex command | `editor.vimCommand({command?})`; omit for a prompt; requires Vim enabled and a source editor; host operations return a completion boolean |
+
+Context menus and drag outcomes dispatch these same commands. Move, rename, and delete return a pending confirmation;
+use `workspace.state().confirmation` and `confirmation.accept({token})`. Neither API calls nor dragging bypass the dirty
+buffer, revision, workspace-boundary, or no-overwrite checks. Import/download streams stay in the main process, outside the
+renderer. Direct typing, drag capture, menu navigation, and fuzzy query editing remain widget interactions.
+
+`tests/vim-files.cjs`, `tests/remote-files-ui.cjs`, and `tests/file-operations.test.cjs` cover these paths. The SSH checks need
+`OWLET_SSH_TARGET` and optionally `OWLET_TEST_TMPDIR`; they use dedicated test directories.

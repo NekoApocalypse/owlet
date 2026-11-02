@@ -45,7 +45,13 @@ import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { yaml } from "@codemirror/lang-yaml";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { vim, Vim, getCM } from "@replit/codemirror-vim";
+import {
+  vim,
+  Vim,
+  getCM,
+  type ExParams,
+  type CodeMirrorV,
+} from "@replit/codemirror-vim";
 import { tags } from "@lezer/highlight";
 import type { Settings } from "./settings";
 
@@ -68,8 +74,14 @@ const tomorrowHighlight = HighlightStyle.define([
 
 const commands = new WeakMap<
   object,
-  { save(): Promise<boolean>; close(): void }
+  {
+    save(): Promise<boolean>;
+    saveAll(): Promise<boolean>;
+    reload(discard: boolean): Promise<boolean>;
+    close(): void;
+  }
 >();
+const pendingEx = new WeakMap<object, Promise<boolean>>();
 const editorCache = new Map<
   string,
   { json: any; scroll: number; bytes: number }
@@ -117,19 +129,73 @@ export function editorAction(
           ? selectAll(lastFocused)
           : true;
 }
-Vim.defineEx("write", "w", (cm) => {
-  void commands.get(cm)?.save();
-});
-Vim.defineEx("quit", "q", (cm) => {
+function hostEx(
+  name: string,
+  prefix: string,
+  action: (cm: CodeMirrorV, params: ExParams) => Promise<boolean>,
+) {
+  Vim.defineEx(name, prefix, (cm, params) => {
+    const pending = Promise.resolve()
+      .then(() => {
+        // Never silently reinterpret a filename, range, or shell command as Save.
+        if (
+          params.line !== undefined ||
+          !/^!?$/.test((params.argString || "").trim())
+        )
+          throw new Error(
+            `:${name} supports the current file only, without ranges or filenames.`,
+          );
+        return action(cm, params);
+      })
+      .catch((error) => {
+        cm.openNotification(
+          document.createTextNode(String(error).replace(/^Error: /, "")),
+          { bottom: true, duration: 5000 },
+        );
+        return false;
+      });
+    pendingEx.set(cm, pending);
+  });
+}
+hostEx("write", "w", async (cm) => commands.get(cm)?.save() ?? false);
+hostEx("update", "up", async (cm) => commands.get(cm)?.save() ?? false);
+hostEx("wall", "wa", async (cm) => commands.get(cm)?.saveAll() ?? false);
+hostEx(
+  "edit",
+  "e",
+  async (cm, params) =>
+    commands.get(cm)?.reload((params.argString || "").trim() === "!") ?? false,
+);
+hostEx("quit", "q", async (cm) => {
   commands.get(cm)?.close();
+  return true;
 });
-Vim.defineEx("wq", "wq", (cm) => {
-  const actions = commands.get(cm);
-  if (actions)
-    void actions.save().then((saved) => {
-      if (saved) actions.close();
-    });
-});
+for (const [name, prefix] of [
+  ["wq", "wq"],
+  ["xit", "x"],
+  ["exit", "ex"],
+])
+  hostEx(name, prefix, async (cm) => {
+    const actions = commands.get(cm);
+    if (!actions || !(await actions.save())) return false;
+    actions.close();
+    return true;
+  });
+export async function vimCommand(command: string) {
+  const cm = lastFocused && getCM(lastFocused);
+  if (!cm?.state.vim)
+    throw new Error("Focus a source editor with Vim mode enabled first.");
+  if (
+    typeof command !== "string" ||
+    !command.trim() ||
+    command.length > 2048 ||
+    /[\r\n]/.test(command)
+  )
+    throw new Error("Provide one Vim Ex command (up to 2,048 characters).");
+  pendingEx.delete(cm);
+  Vim.handleEx(cm as CodeMirrorV, command.replace(/^:/, ""));
+  return pendingEx.get(cm) ?? true;
+}
 
 const theme = EditorView.theme(
   {
@@ -193,6 +259,8 @@ export default function Editor({
   fontSettings,
   onChange,
   onSave,
+  onSaveAll,
+  onReload,
   onClose,
 }: {
   path: string;
@@ -203,14 +271,16 @@ export default function Editor({
   fontSettings: Settings;
   onChange(value: string): void;
   onSave(): Promise<boolean>;
+  onSaveAll(): Promise<boolean>;
+  onReload(discard: boolean): Promise<boolean>;
   onClose(): void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | undefined>(undefined);
   const vimCompartment = useRef(new Compartment());
   const wrapCompartment = useRef(new Compartment());
-  const callbacks = useRef({ onChange, onSave, onClose });
-  callbacks.current = { onChange, onSave, onClose };
+  const callbacks = useRef({ onChange, onSave, onSaveAll, onReload, onClose });
+  callbacks.current = { onChange, onSave, onSaveAll, onReload, onClose };
   const syncing = useRef(false);
   useEffect(() => {
     let editor: EditorView;
@@ -273,6 +343,8 @@ export default function Editor({
     if (cm)
       commands.set(cm, {
         save: () => callbacks.current.onSave(),
+        saveAll: () => callbacks.current.onSaveAll(),
+        reload: (discard) => callbacks.current.onReload(discard),
         close: () => callbacks.current.onClose(),
       });
     return () => {
@@ -308,6 +380,8 @@ export default function Editor({
     if (cm)
       commands.set(cm, {
         save: () => callbacks.current.onSave(),
+        saveAll: () => callbacks.current.onSaveAll(),
+        reload: (discard) => callbacks.current.onReload(discard),
         close: () => callbacks.current.onClose(),
       });
   }, [vimMode]);

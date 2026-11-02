@@ -94,5 +94,13 @@
     "default": 3000,
     "min": 0,
     "max": 100000
+  },
+  "files.quickOpenMaxDepth": {
+    "group": "Files",
+    "label": "Quick Open maximum depth",
+    "description": "Subdirectory levels to index for Ctrl+P. 0 searches the workspace root only. Indexing runs in the background.",
+    "default": 5,
+    "min": 0,
+    "max": 20
   }
 }

@@ -34,11 +34,13 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
-import Editor, { editorAction } from "./Editor";
+import Editor, { editorAction, vimCommand } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
+import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
+import ContextMenu, { type MenuItem } from "./ContextMenu";
 import {
   SETTINGS_PATH,
   defaults,
@@ -58,6 +60,7 @@ import {
   dirname,
   isImage,
   isMarkdown,
+  resolvePath,
   type ConnectionState,
   type Document,
   type Group,
@@ -264,6 +267,30 @@ export default function App() {
   const [refresh, setRefresh] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [indexRevision, setIndexRevision] = useState(0);
+  const [quickOpen, setQuickOpen] = useState<string | null>(null);
+  const [fileClipboard, setFileClipboard] = useState<{
+    path: string;
+    root: string;
+    cut: boolean;
+    revision: string;
+    directory: boolean;
+  } | null>(null);
+  useEffect(() => setFileClipboard(null), [root, connection.target]);
+  const [fileMenu, setFileMenu] = useState<{
+    path: string;
+    directory: boolean;
+    x: number;
+    y: number;
+    group?: number;
+  } | null>(null);
+  const fileIndex = useFileIndex(
+    root,
+    connection.status === "connected",
+    settings["files.quickOpenMaxDepth"],
+    refresh + indexRevision,
+    busy.size > 0,
+  );
   const [prompt, updatePrompt] = useState<Prompt | null>(null);
   const setPrompt = (value: Prompt | null) =>
     updatePrompt(value ? { ...value, token: crypto.randomUUID() } : null);
@@ -278,6 +305,7 @@ export default function App() {
     title: string;
     value: string;
     multiline?: boolean;
+    confirm?: string;
     action(path: string): unknown;
   } | null>(null);
   const docsRef = useRef(documents),
@@ -448,6 +476,222 @@ export default function App() {
     }
     if (await pending) activate(path, group);
   }
+  const beneath = (path: string, parent: string) =>
+    path === parent || path.startsWith(parent.replace(/\/$/, "") + "/");
+  function checkFileBuffers(path: string, destination?: string) {
+    for (const doc of Object.values(docsRef.current)) {
+      if (
+        beneath(doc.path, path) &&
+        (doc.text !== doc.saved || saving.current.has(doc.path))
+      )
+        throw new Error(
+          "Save or discard edits in the selected item before moving or deleting it.",
+        );
+      if (
+        destination &&
+        beneath(doc.path, destination) &&
+        !beneath(doc.path, path)
+      )
+        throw new Error(
+          "Close tabs at the destination before moving this item.",
+        );
+    }
+  }
+  function updateOpenPaths(source: string, destination?: string) {
+    // Typing can continue while a remote operation is in flight. If deletion
+    // finished after new edits arrived, keep that buffer as a missing file.
+    const keep = new Set(
+      Object.values(docsRef.current)
+        .filter(
+          (doc) =>
+            !destination && beneath(doc.path, source) && doc.text !== doc.saved,
+        )
+        .map((doc) => doc.path),
+    );
+    const moved = (path: string) =>
+      beneath(path, source) && !keep.has(path)
+        ? destination
+          ? destination + path.slice(source.length)
+          : undefined
+        : path;
+    const next: Record<string, Document> = {};
+    for (const doc of Object.values(docsRef.current)) {
+      const path = moved(doc.path);
+      if (path)
+        next[path] = {
+          ...doc,
+          path,
+          missing: keep.has(doc.path) || doc.missing,
+          conflict: doc.conflict ? { ...doc.conflict, path } : undefined,
+        };
+    }
+    docsRef.current = next;
+    setDocuments(next);
+    setLayout((previous) =>
+      groups(previous).reduce(
+        (result, group) =>
+          mapGroup(result, group.id, (current) => {
+            const tabs = current.tabs
+              .map(moved)
+              .filter((path): path is string => !!path);
+            return {
+              ...current,
+              tabs,
+              active: current.active
+                ? moved(current.active) || tabs[0]
+                : tabs[0],
+            };
+          }),
+        previous,
+      ),
+    );
+    setViewModes((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).flatMap(([key, mode]) => {
+          const at = key.indexOf(":"),
+            path = moved(key.slice(at + 1));
+          return path ? [[key.slice(0, at + 1) + path, mode]] : [];
+        }),
+      ),
+    );
+    if (comparison && beneath(comparison, source)) setComparison(null);
+  }
+  async function createItem(directory: string, name: string, folder: boolean) {
+    markBusy("file-operation", true);
+    try {
+      const result = await window.lwr.remote<{ path: string }>("fs-operation", {
+        op: folder ? "create-folder" : "create-file",
+        root,
+        directory,
+        name,
+      });
+      setRefresh((value) => value + 1);
+      if (!folder) await openFile(result.path);
+      setMessage(`Created ${basename(result.path)}`);
+      return result;
+    } finally {
+      markBusy("file-operation", false);
+    }
+  }
+  async function proposeFileChange(
+    op: "delete" | "move",
+    path: string,
+    destination?: string,
+  ) {
+    if (!path || path === SETTINGS_PATH || path === root)
+      throw new Error("Choose a file or folder inside this workspace.");
+    checkFileBuffers(path, destination);
+    const metadata = await window.lwr.remote<{
+      revision: string;
+      directory: boolean;
+    }>("fs-operation", { op: "inspect", root, path });
+    setPrompt({
+      title:
+        op === "delete"
+          ? `Delete ${basename(path)} permanently?`
+          : `Move ${basename(path)}?`,
+      detail:
+        op === "delete"
+          ? `${path}${metadata.directory ? " and everything inside it" : ""} will be permanently deleted. This does not use the Recycle Bin.`
+          : `${path}\n→ ${destination}\nExisting files will not be overwritten.`,
+      confirm: op === "delete" ? "Delete permanently" : "Move",
+      action: async () => {
+        checkFileBuffers(path, destination);
+        const locked = Object.keys(docsRef.current).filter((item) =>
+          beneath(item, path),
+        );
+        locked.forEach((item) => saving.current.add(item));
+        markBusy("file-operation", true);
+        try {
+          const result = await window.lwr.remote("fs-operation", {
+            op,
+            root,
+            path,
+            destination,
+            revision: metadata.revision,
+          });
+          updateOpenPaths(path, destination);
+          setFileClipboard((value) =>
+            value?.cut && value.path === path ? null : value,
+          );
+          setRefresh((value) => value + 1);
+          setMessage(
+            `${op === "delete" ? "Deleted" : "Moved"} ${basename(path)}`,
+          );
+          return result;
+        } finally {
+          locked.forEach((item) => saving.current.delete(item));
+          markBusy("file-operation", false);
+        }
+      },
+    });
+    return { confirmationRequired: true };
+  }
+  async function copyFileReference(path: string, cut: boolean) {
+    if (!path || path === SETTINGS_PATH || path === root)
+      throw new Error("Choose a file or folder inside this workspace.");
+    checkFileBuffers(path);
+    const metadata = await window.lwr.remote<{
+      revision: string;
+      directory: boolean;
+    }>("fs-operation", { op: "inspect", path });
+    setFileClipboard({ path, root, cut, ...metadata });
+    setMessage(
+      `${cut ? "Cut" : "Copied"} ${basename(path)} — choose a folder and Paste`,
+    );
+  }
+  async function pasteFile(directory: string) {
+    const clipboard = fileClipboard;
+    if (!clipboard || clipboard.root !== root)
+      throw new Error("Copy or cut an item in this Owlet window first.");
+    checkFileBuffers(clipboard.path);
+    const metadata = await window.lwr.remote<{ revision: string }>(
+      "fs-operation",
+      { op: "inspect", path: clipboard.path },
+    );
+    if (metadata.revision !== clipboard.revision)
+      throw new Error(
+        "The copied item changed. Copy or cut it again before pasting.",
+      );
+    let destination = resolvePath(directory, basename(clipboard.path));
+    if (clipboard.cut && destination === clipboard.path) return;
+    if (!clipboard.cut && dirname(clipboard.path) === directory) {
+      const name = basename(clipboard.path),
+        dot = clipboard.directory ? -1 : name.lastIndexOf("."),
+        stem = dot > 0 ? name.slice(0, dot) : name,
+        extension = dot > 0 ? name.slice(dot) : "";
+      for (let i = 1; i <= 1000; i++) {
+        destination = resolvePath(
+          directory,
+          `${stem} copy${i === 1 ? "" : ` ${i}`}${extension}`,
+        );
+        try {
+          await window.lwr.remote("stat", { path: destination });
+        } catch (error) {
+          if (/ENOENT|\[Errno 2\]|No such file/i.test(String(error))) break;
+          throw error;
+        }
+        if (i === 1000) throw new Error("Choose another destination folder.");
+      }
+    }
+    if (clipboard.cut)
+      return proposeFileChange("move", clipboard.path, destination);
+    markBusy("file-operation", true);
+    setMessage(`Copying ${basename(clipboard.path)}…`);
+    try {
+      const result = await window.lwr.remote("fs-operation", {
+        op: "copy",
+        path: clipboard.path,
+        destination,
+        revision: clipboard.revision,
+      });
+      setRefresh((value) => value + 1);
+      setMessage(`Copied ${basename(clipboard.path)}`);
+      return result;
+    } finally {
+      markBusy("file-operation", false);
+    }
+  }
   async function saveFile(
     path: string,
     replacementRevision?: string,
@@ -498,6 +742,46 @@ export default function App() {
       }
       report(error);
       return false;
+    } finally {
+      saving.current.delete(path);
+      markBusy(path, false);
+    }
+  }
+  async function reloadFile(path: string, discard = false): Promise<boolean> {
+    if (typeof discard !== "boolean")
+      throw new Error("discard must be true or false.");
+    const before = docsRef.current[path];
+    if (!before || before.image) throw new Error("Open a text file first.");
+    if (before.text !== before.saved && !discard)
+      throw new Error(
+        "Unsaved changes. Save first, or use :e! to discard and reload.",
+      );
+    if (saving.current.has(path))
+      throw new Error("A save or reload is already in progress.");
+    saving.current.add(path);
+    markBusy(path, true);
+    try {
+      const file = await readDocument(path);
+      const latest = docsRef.current[path];
+      if (
+        !latest ||
+        latest.text !== before.text ||
+        latest.revision !== before.revision
+      )
+        throw new Error(
+          "The buffer changed while reloading. Your newer edits were kept; retry when ready.",
+        );
+      const text = file.text.replace(/\r\n/g, "\n");
+      patch(path, {
+        ...file,
+        text,
+        saved: text,
+        conflict: undefined,
+        missing: false,
+        lineEnding: file.text.includes("\r\n") ? "\r\n" : "\n",
+      });
+      if (comparison === path) setComparison(null);
+      return true;
     } finally {
       saving.current.delete(path);
       markBusy(path, false);
@@ -1176,6 +1460,261 @@ export default function App() {
               });
         },
       },
+      ...(["cut", "copy"] as const).map((action) => ({
+        id: `file.${action}`,
+        title: `File: ${action === "cut" ? "Cut" : "Copy"} File or Folder…`,
+        enabled: connected && !!root,
+        parameters: {
+          path: "Source item; defaults to current file, otherwise prompts",
+        },
+        run: (args: Record<string, any>) => {
+          const path = args.path || current?.path;
+          return path
+            ? copyFileReference(path, action === "cut")
+            : setPathPrompt({
+                title: `${action === "cut" ? "Cut" : "Copy"} file or folder`,
+                value: root + "/",
+                confirm: action === "cut" ? "Cut" : "Copy",
+                action: (path) => copyFileReference(path, action === "cut"),
+              });
+        },
+      })),
+      {
+        id: "file.paste",
+        title: "File: Paste File or Folder",
+        enabled: connected && !!fileClipboard && fileClipboard.root === root,
+        parameters: {
+          directory:
+            "Destination folder; defaults to current file's folder or workspace",
+        },
+        run: (args) =>
+          pasteFile(
+            args.directory ||
+              (current && current.path !== SETTINGS_PATH
+                ? dirname(current.path)
+                : root),
+          ),
+      },
+      {
+        id: "file.newFile",
+        title: "File: New File…",
+        enabled: connected && !!root,
+        parameters: {
+          directory:
+            "Parent folder; defaults to the active file's folder or workspace",
+          name: "Single filename; omit for a prompt",
+        },
+        run: (args) => {
+          const directory =
+            args.directory ||
+            (current && current.path !== SETTINGS_PATH
+              ? dirname(current.path)
+              : root);
+          return args.name !== undefined
+            ? createItem(directory, args.name, false)
+            : setPathPrompt({
+                title: "New file",
+                value: "",
+                confirm: "Create",
+                action: (name) => createItem(directory, name, false),
+              });
+        },
+      },
+      {
+        id: "file.newFolder",
+        title: "File: New Folder…",
+        enabled: connected && !!root,
+        parameters: {
+          directory: "Parent folder; defaults to workspace",
+          name: "Single folder name; omit for a prompt",
+        },
+        run: (args) =>
+          args.name !== undefined
+            ? createItem(args.directory || root, args.name, true)
+            : setPathPrompt({
+                title: "New folder",
+                value: "",
+                confirm: "Create",
+                action: (name) =>
+                  createItem(args.directory || root, name, true),
+              }),
+      },
+      {
+        id: "file.delete",
+        title: "File: Delete…",
+        enabled: connected && !!root,
+        parameters: {
+          path: "File or folder; always asks for token-checked confirmation",
+        },
+        run: (args) =>
+          args.path || current
+            ? proposeFileChange("delete", args.path || current!.path)
+            : setPathPrompt({
+                title: "Delete file or folder",
+                value: root + "/",
+                confirm: "Review",
+                action: (path) => proposeFileChange("delete", path),
+              }),
+      },
+      {
+        id: "file.move",
+        title: "File: Move…",
+        enabled: connected && !!root,
+        parameters: {
+          path: "Source file or folder",
+          directory: "Destination folder; keeps filename",
+          destination:
+            "Alternative complete destination path; omission opens a prompt",
+        },
+        run: (args) => {
+          const source = args.path || current?.path;
+          if (!source) throw new Error("Select a source file or folder first.");
+          const destination =
+            args.destination ||
+            (args.directory
+              ? resolvePath(args.directory, basename(source))
+              : undefined);
+          return destination
+            ? proposeFileChange("move", source, destination)
+            : setPathPrompt({
+                title: "Move file or folder",
+                value: source,
+                confirm: "Review move",
+                action: (destination) =>
+                  proposeFileChange("move", source, destination),
+              });
+        },
+      },
+      {
+        id: "file.rename",
+        title: "File: Rename…",
+        enabled: connected && !!root,
+        parameters: {
+          path: "Source file or folder",
+          name: "New single name; omit for a prompt",
+        },
+        run: (args) => {
+          const source = args.path || current?.path;
+          if (!source || source === SETTINGS_PATH)
+            throw new Error("Select a workspace file or folder first.");
+          const rename = (name: string) => {
+            if (
+              typeof name !== "string" ||
+              !name.trim() ||
+              /[\\/\0]/.test(name) ||
+              name === "." ||
+              name === ".."
+            )
+              throw new Error("Enter a single name.");
+            return proposeFileChange(
+              "move",
+              source,
+              resolvePath(dirname(source), name),
+            );
+          };
+          return args.name !== undefined
+            ? rename(args.name)
+            : setPathPrompt({
+                title: "Rename",
+                value: basename(source),
+                confirm: "Review rename",
+                action: rename,
+              });
+        },
+      },
+      {
+        id: "file.import",
+        title: local
+          ? "File: Copy Local Files into Workspace…"
+          : "File: Upload Files…",
+        enabled: connected && !!root,
+        parameters: {
+          directory: "Destination folder; defaults to workspace",
+          paths:
+            "Optional array of absolute local file paths; omission opens a picker",
+        },
+        run: async (args) => {
+          markBusy("transfer", true);
+          setMessage(local ? "Copying files…" : "Uploading files…");
+          try {
+            const result = await window.lwr.importFiles({
+              directory: args.directory || root,
+              paths: args.paths,
+            });
+            setMessage(result ? `Saved ${result.paths.length} file(s)` : "");
+            return result;
+          } finally {
+            markBusy("transfer", false);
+            setRefresh((value) => value + 1);
+          }
+        },
+      },
+      {
+        id: "file.download",
+        title: "File: Download Remote File…",
+        enabled: connected && !local && !!root,
+        parameters: {
+          path: "Remote file; defaults to current file",
+          destination:
+            "Optional absolute local path (must not exist); omission opens Save As",
+        },
+        run: async (args) => {
+          const path = args.path || current?.path;
+          if (!path || path === SETTINGS_PATH)
+            throw new Error("Choose a remote file first.");
+          markBusy("transfer", true);
+          setMessage("Downloading file…");
+          try {
+            const result = await window.lwr.downloadFile({
+              path,
+              destination: args.destination,
+            });
+            setMessage(result ? `Saved download to ${result.path}` : "");
+            return result;
+          } finally {
+            markBusy("transfer", false);
+          }
+        },
+      },
+      {
+        id: "file.quickOpen",
+        title: "File: Quick Open…",
+        shortcut: "Ctrl+P",
+        keywords: ["Find file", "Fuzzy file search"],
+        enabled: connected && !!root,
+        parameters: { query: "Optional initial fuzzy filename/path query" },
+        run: (args) => {
+          searchFiles(fileIndex, args.query ?? "");
+          if (!fileIndex.loading && Date.now() - fileIndex.completedAt > 15000)
+            setIndexRevision((value) => value + 1);
+          setQuickOpen(args.query ?? "");
+        },
+      },
+      {
+        id: "file.search",
+        title: "File: Search Indexed Files…",
+        enabled: connected && !!root,
+        parameters: {
+          query: "Fuzzy query; omit to open Quick Open",
+          limit: "1–200, default 100",
+        },
+        run: (args) =>
+          args.query === undefined
+            ? setQuickOpen("")
+            : {
+                matches: searchFiles(fileIndex, args.query, args.limit ?? 100),
+                loading: fileIndex.loading,
+                limited: fileIndex.limited,
+                errors: fileIndex.errors,
+                indexed: fileIndex.files.length,
+              },
+      },
+      {
+        id: "file.index.refresh",
+        title: "File: Refresh Quick Open Index",
+        enabled: connected && !!root,
+        run: () => setIndexRevision((value) => value + 1),
+      },
       {
         id: "file.open",
         title: "File: Open File by Path…",
@@ -1206,10 +1745,12 @@ export default function App() {
       {
         id: "file.saveAll",
         title: "File: Save All",
-        enabled: connected && dirty,
+        enabled: connected || !!documents[SETTINGS_PATH],
         run: async () => {
           for (const doc of Object.values(docsRef.current))
-            if (doc.text !== doc.saved && !(await saveFile(doc.path))) break;
+            if (doc.text !== doc.saved && !(await saveFile(doc.path)))
+              return false;
+          return true;
         },
       },
       {
@@ -1224,6 +1765,21 @@ export default function App() {
           ),
       },
       {
+        id: "file.reload",
+        title: "File: Reload from Disk",
+        enabled:
+          !!current &&
+          !current.image &&
+          (connected || current.path === SETTINGS_PATH),
+        parameters: {
+          path: "Optional open file path",
+          discard:
+            "Explicit true discards existing unsaved edits; default false refuses dirty buffers",
+        },
+        run: (args) =>
+          reloadFile(args.path || current!.path, args.discard ?? false),
+      },
+      {
         id: "file.revert",
         title: "File: Revert to Saved Version",
         enabled:
@@ -1236,17 +1792,7 @@ export default function App() {
             detail: "The saved content will replace your editor buffer.",
             confirm: "Reload saved file",
             action: () => {
-              void readDocument(current!.path)
-                .then((result) => {
-                  const text = result.text.replace(/\r\n/g, "\n");
-                  patch(current!.path, {
-                    ...result,
-                    text,
-                    saved: text,
-                    conflict: undefined,
-                  });
-                })
-                .catch(report);
+              void reloadFile(current!.path, true).catch(report);
             },
           }),
       },
@@ -1259,8 +1805,32 @@ export default function App() {
       {
         id: "file.copyPath",
         title: "File: Copy File Path",
-        enabled: !!current,
-        run: () => navigator.clipboard.writeText(current!.path),
+        enabled: !!root || !!current,
+        parameters: { path: "Optional explicit file/folder path" },
+        run: (args) =>
+          navigator.clipboard.writeText(
+            (args.path || current?.path || root) === SETTINGS_PATH
+              ? settingsFile
+              : args.path || current?.path || root,
+          ),
+      },
+      {
+        id: "file.copyRelativePath",
+        title: "File: Copy Relative Path",
+        enabled: !!root,
+        parameters: {
+          path: "Optional explicit file/folder path, relative to workspace root",
+        },
+        run: (args) => {
+          const path = args.path || current?.path || root;
+          if (!beneath(path, root))
+            throw new Error("Choose a path inside this workspace.");
+          return navigator.clipboard.writeText(
+            path === root
+              ? "."
+              : path.slice(root.replace(/\/$/, "").length + 1),
+          );
+        },
       },
       ...(["local", "remote"] as const).map((choice) => ({
         id: choice === "local" ? "conflict.replace" : "conflict.useRemote",
@@ -1290,6 +1860,33 @@ export default function App() {
         title: "Conflict: Keep Editing",
         enabled: !!comparison,
         run: () => setComparison(null),
+      },
+      {
+        id: "editor.vimCommand",
+        title: "Vim: Run Ex Command…",
+        enabled:
+          !!current && !current.image && vimMode && current.mode !== "preview",
+        parameters: {
+          command:
+            "One Ex command, e.g. e!, w, %s/old/new/g; omit for a prompt",
+        },
+        run: (args) => {
+          const run = (command: string) => {
+            document
+              .querySelector<HTMLElement>(
+                `[data-group="${currentGroup.id}"] .cm-content`,
+              )
+              ?.focus();
+            return vimCommand(command);
+          };
+          return args.command !== undefined
+            ? run(args.command)
+            : setPathPrompt({
+                title: "Vim Ex command",
+                value: ":",
+                action: run,
+              });
+        },
       },
       {
         id: "editor.vim",
@@ -1788,6 +2385,7 @@ export default function App() {
             root,
             connection: connection.status,
             vimMode,
+            fileClipboard,
             layout,
             viewModes,
             activeGroup,
@@ -2260,10 +2858,28 @@ export default function App() {
     localStorage.setItem("lwr-vim", String(vimMode));
   }, [vimMode]);
   useEffect(() => {
+    const quickOpenShortcut = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "p"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        execute("file.quickOpen");
+      }
+    };
+    window.addEventListener("keydown", quickOpenShortcut, true);
+    return () => window.removeEventListener("keydown", quickOpenShortcut, true);
+  }, [commandApi]);
+  useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       // Respect editor/Vim bindings, particularly Ctrl+R (redo) and Ctrl+W.
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
+        setFileMenu(null);
+        setQuickOpen(null);
         setTerminalChooser(false);
         setRecentPicker(null);
         setPrompt(null);
@@ -2468,6 +3084,13 @@ export default function App() {
         onDrop={(event) => {
           event.preventDefault();
           try {
+            const entry = event.dataTransfer.getData("application/owlet-file");
+            if (entry) {
+              const file = JSON.parse(entry);
+              if (!file.directory)
+                execute("file.open", { path: file.path, group: group.id });
+              return;
+            }
             const terminalId = event.dataTransfer.getData(
               "application/owlet-terminal",
             );
@@ -2503,6 +3126,17 @@ export default function App() {
                   role="tab"
                   aria-selected={group.active === path}
                   draggable
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    if (!terminalTab)
+                      setFileMenu({
+                        path,
+                        directory: false,
+                        x: event.clientX,
+                        y: event.clientY,
+                        group: group.id,
+                      });
+                  }}
                   title={
                     terminalTab ? `${label} · ${terminalTab.status}` : path
                   }
@@ -2757,6 +3391,15 @@ export default function App() {
                           path: doc.path,
                         }) as Promise<boolean>
                       }
+                      onSaveAll={() =>
+                        commandApi.execute("file.saveAll") as Promise<boolean>
+                      }
+                      onReload={(discard) =>
+                        commandApi.execute("file.reload", {
+                          path: doc.path,
+                          discard,
+                        }) as Promise<boolean>
+                      }
                       onClose={() =>
                         execute("file.close", {
                           path: doc.path,
@@ -2819,6 +3462,15 @@ export default function App() {
                   onSave={() =>
                     commandApi.execute("file.save", {
                       path: doc.path,
+                    }) as Promise<boolean>
+                  }
+                  onSaveAll={() =>
+                    commandApi.execute("file.saveAll") as Promise<boolean>
+                  }
+                  onReload={(discard) =>
+                    commandApi.execute("file.reload", {
+                      path: doc.path,
+                      discard,
                     }) as Promise<boolean>
                   }
                   onClose={() =>
@@ -2897,6 +3549,94 @@ export default function App() {
     );
   }
   const conflictDoc = comparison ? documents[comparison] : undefined;
+  const contextItems: MenuItem[] = fileMenu
+    ? (() => {
+        const path = fileMenu.path,
+          directory = fileMenu.directory ? path : dirname(path);
+        const workspaceItem =
+          !!root && beneath(path, root) && path !== SETTINGS_PATH;
+        const items: MenuItem[] = [
+          {
+            label: "New File…",
+            id: "file.newFile",
+            args: { directory },
+            disabled: !workspaceItem || !connected,
+          },
+          {
+            label: "New Folder…",
+            id: "file.newFolder",
+            args: { directory },
+            disabled: !workspaceItem || !connected,
+          },
+          null,
+          {
+            label: "Cut",
+            id: "file.cut",
+            args: { path },
+            disabled: !workspaceItem || path === root || !connected,
+          },
+          {
+            label: "Copy",
+            id: "file.copy",
+            args: { path },
+            disabled: !workspaceItem || path === root || !connected,
+          },
+          {
+            label: "Paste",
+            id: "file.paste",
+            args: { directory },
+            disabled:
+              !workspaceItem ||
+              !connected ||
+              !fileClipboard ||
+              fileClipboard.root !== root,
+          },
+          null,
+          { label: "Copy Path", id: "file.copyPath", args: { path } },
+          {
+            label: "Copy Relative Path",
+            id: "file.copyRelativePath",
+            args: { path },
+            disabled: !workspaceItem,
+          },
+          null,
+        ];
+        if (!local && !fileMenu.directory)
+          items.push({
+            label: "Download…",
+            id: "file.download",
+            args: { path },
+            disabled: !workspaceItem || !connected,
+          });
+        if (fileMenu.directory)
+          items.push({
+            label: local ? "Copy Files Here…" : "Upload Files Here…",
+            id: "file.import",
+            args: { directory },
+            disabled: !workspaceItem || !connected,
+          });
+        items.push({
+          label: "Rename…",
+          id: "file.rename",
+          args: { path },
+          disabled: !workspaceItem || path === root || !connected,
+        });
+        items.push({
+          label: "Delete",
+          id: "file.delete",
+          args: { path },
+          danger: true,
+          disabled: !workspaceItem || path === root || !connected,
+        });
+        if (fileMenu.group !== undefined)
+          items.push(null, {
+            label: "Close Tab",
+            id: "file.close",
+            args: { path, group: fileMenu.group },
+          });
+        return items;
+      })()
+    : [];
   return (
     <div
       className="app-shell"
@@ -2990,6 +3730,23 @@ export default function App() {
           onClose={() => setRecentPicker(null)}
         />
       )}
+      {quickOpen !== null && (
+        <QuickOpen
+          index={fileIndex}
+          initialQuery={quickOpen}
+          onCommand={execute}
+          onClose={() => setQuickOpen(null)}
+        />
+      )}
+      {fileMenu && (
+        <ContextMenu
+          x={fileMenu.x}
+          y={fileMenu.y}
+          items={contextItems}
+          onCommand={execute}
+          onClose={() => setFileMenu(null)}
+        />
+      )}
       <main className="workspace">
         {
           <>
@@ -3001,6 +3758,10 @@ export default function App() {
               }}
             >
               <Explorer
+                cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
+                onContext={(path, directory, x, y) =>
+                  setFileMenu({ path, directory, x, y })
+                }
                 root={root}
                 selected={current?.path}
                 revision={refresh}
@@ -3255,7 +4016,7 @@ export default function App() {
       )}
       {message && (
         <div
-          className={`toast ${/saved|connected/i.test(message) ? "" : "error-toast"}`}
+          className={`toast ${/^(saved|connected|created|moved|deleted|copying|copied|cut|uploading|downloading|downloaded)/i.test(message) ? "" : "error-toast"}`}
           role="status"
         >
           <span>{message}</span>
@@ -3452,7 +4213,7 @@ export default function App() {
                 Cancel
               </button>
               <button className="primary-button" type="submit">
-                Open
+                {pathPrompt.confirm || "Open"}
               </button>
             </div>
           </form>

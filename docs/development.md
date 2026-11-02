@@ -114,3 +114,21 @@ The small event adapter in `previewFindCommands.ts` connects independent mounted
 moving search state into the whole workspace. Preview zoom is window state, separate from saved reading fonts and application zoom.
 
 Focused checks: `node --test tests/settings.test.cjs` and `node tests/preview-settings.cjs` (after `npm run build`).
+
+## Background file index and filesystem actions
+
+`src/QuickOpen.tsx` owns a bounded, cancellable metadata scan: startup delay, one page in flight, yielding between pages,
+and a pause while foreground file work is busy. Roots/settings/revisions cancel obsolete scans. Cached results remain
+searchable during refresh. The hook never downloads file contents. The command registry exposes both the picker and results.
+
+`electron/file-operations.cjs` and `remote/bridge.py` enforce workspace paths, parent realpaths, expected metadata revisions,
+and no-overwrite moves. Windows local moves use .NET's non-overwriting operation through a hidden subprocess; UTF-8 JSON
+carries paths on stdin, without interpolating shell code. Linux remote moves use `renameat2(RENAME_NOREPLACE)`.
+`electron/transfers.cjs` streams local/SSH transfers via temporary files; completed uploads publish with a no-overwrite hard
+link. Aborted sessions clean up temporary files; process crashes can leave them. Native Save As replacement rechecks the
+existing destination revision. As with ordinary saves, these checks cannot lock out unrelated external writers in every
+check-to-operation interval; directory deletion does not snapshot or lock a tree against concurrent external changes.
+
+Vim's existing engine supplies search/substitution and history. Small Ex adapters route saves, save-all, and reloads through
+the existing file commands. Reload checks the buffer again after reading so it cannot overwrite newer typing. File operations
+hold save locks while pending; new edits arriving during deletion stay in a missing-file buffer.

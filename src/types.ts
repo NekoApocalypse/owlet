@@ -61,6 +61,15 @@ export type TerminalSession = {
 declare global {
   interface Window {
     lwr: {
+      droppedPaths(files: File[]): string[];
+      importFiles(args: {
+        directory: string;
+        paths?: string[];
+      }): Promise<{ paths: string[] } | null>;
+      downloadFile(args: {
+        path: string;
+        destination?: string;
+      }): Promise<{ path: string } | null>;
       readSettings(): Promise<RemoteFile>;
       saveSettings(args: {
         text: string;

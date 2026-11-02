@@ -174,3 +174,49 @@ Inside a preview, `Ctrl++` (also `Ctrl+=`), `Ctrl+-`, and `Ctrl+wheel` zoom the 
 `Ctrl+0` or the percentage badge resets it. All previews in that window share the zoom, including previews opened later.
 The surrounding UI, source editors, and terminals stay at their own sizes. Preview zoom resets when the window reloads;
 use the saved preview font size preference for a lasting reading size.
+
+## Quick Open and file actions
+
+Press **Ctrl+P** to find files by fuzzy name or relative path. Results are usable while the footer says **Indexing…**.
+Owlet scans directory metadata in the background, one page at a time, after the initial workspace load; file contents are not
+indexed. `files.quickOpenMaxDepth` in Settings defaults to 5 (0 means root files only; maximum 20). The index skips `.git`,
+`node_modules`, `.venv`, `__pycache__`, and symlink directories. It stops at 20,000 files, 5,000 queued folders, or 10,000 listing
+pages and labels a capped/error result as partial. Refresh with the Quick Open refresh button; reopening after 15 seconds
+also refreshes while keeping existing results usable. It is not a continuously watched filesystem-wide search.
+
+Right-click an Explorer item or file tab for **New File**, **New Folder**, **Cut**, **Copy**, **Paste**, **Copy Path**, **Copy Relative Path**, **Rename**, and
+**Delete**. SSH file menus also offer **Download**. New items are created beside the clicked file or inside the clicked folder.
+Cut/Copy/Paste uses a file clipboard within the current Owlet window. Cut dims the item until a confirmed Paste moves it;
+Copy duplicates a regular file or folder. Pasting a copy beside itself chooses a new "copy" name. The destination must otherwise
+be absent. Changed sources require copying/cutting again. Folder copies reject symbolic links and stop at 20,000 items.
+The file clipboard clears on reload or workspace change; it does not replace the OS text clipboard or transfer across windows.
+With an Explorer row focused, Ctrl+X/C/V uses these file actions; source editors keep their normal text shortcuts.
+
+Dragging an Explorer item onto a folder proposes a move; dragging a file into an editor group opens it there.
+
+Drop files from Windows File Explorer into the Explorer to copy them locally or upload them to an SSH folder. Drops onto a
+file use its parent folder; empty Explorer space uses the workspace root. A highlighted folder shows the destination.
+Folder and symbolic-link uploads are not supported yet. At most 100 regular files can be selected; transfers stream in
+16 KiB chunks and never replace an existing filename. A failed batch keeps already completed files and reports that count.
+Download uses a local Save As dialog; existing-file replacement requires that dialog's confirmation.
+
+Moves and deletes require confirmation, reject stale file metadata, and refuse dirty open files. Clean open tabs follow
+moves made through Owlet. Delete is permanent, including a folder's contents; it does not use the Recycle Bin. The workspace
+root cannot be moved or deleted. If new edits arrive during a remote delete, their buffer stays open as a missing file.
+External agent renames still leave open tabs at their original paths. Existing terminals keep their shell working directory;
+file moves do not restart shells or change their directory. Local moves currently require Windows; remote moves require
+Linux with `renameat2`. No overwrite, recursive upload, cross-workspace drag, drag reordering, or multi-selection is included.
+
+## Everyday Vim
+
+Enable Vim in Settings or from the command palette. The Vim command line uses the source editor's font size.
+
+- Search with `/` or `?`; repeat with `n` / `N`, search a word with `*` / `#`, clear highlights with `:noh`.
+- Substitute with `:s/old/new/`, `:%s/old/new/g`, ranges, and confirmation (`c`). Undo/redo use `u` / `Ctrl+R` or `:undo` / `:redo`.
+- Save with `:w`, save only if changed with `:up`, save all dirty tabs with `:wa`.
+- Reload a clean file with `:e`; explicitly discard and reload with `:e!`. A failed read keeps the buffer.
+- `:wq`, `:x`, and `:exit` save before closing. `:q` uses Owlet's normal dirty-tab confirmation.
+
+Host commands operate on existing tabs: filenames, ranges on writes, shell commands, and full Vim UI/window management are
+not added. `:w!` does not bypass Owlet's conflict checks; `:q!` retains the normal discard confirmation. Search/substitution
+use CodeMirror Vim's regex behavior, not every Vim regex feature.

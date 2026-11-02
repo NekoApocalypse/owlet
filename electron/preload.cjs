@@ -1,10 +1,14 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 function subscribe(channel, callback) {
   const listener = (_, payload) => callback(payload);
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.removeListener(channel, listener);
 }
 contextBridge.exposeInMainWorld("lwr", {
+  droppedPaths: (files) =>
+    files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
+  importFiles: (args) => ipcRenderer.invoke("files-import", args),
+  downloadFile: (args) => ipcRenderer.invoke("file-download", args),
   readSettings: () => ipcRenderer.invoke("settings-read"),
   saveSettings: (args) => ipcRenderer.invoke("settings-save", args),
   bootstrap: () => ipcRenderer.invoke("bootstrap"),

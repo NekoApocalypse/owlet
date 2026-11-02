@@ -546,12 +546,14 @@ input {
 .cm-vim-panel {
   background: #001c40 !important;
   color: #bbdaff !important;
-  font:
-    11px Consolas,
-    monospace;
+  font-size: var(--editor-font-size, 13px);
+  font-family: var(--editor-font-family, "Cascadia Code", Consolas, monospace);
+  line-height: 1.4;
   padding: var(--space-2) var(--space-8);
 }
 .cm-vim-panel input {
+  font: inherit;
+  color: inherit;
   padding: var(--space-2);
 }
 .welcome {
@@ -1591,4 +1593,63 @@ input {
   margin-top: var(--space-8);
   border: 1px solid var(--line);
   padding: var(--space-4) var(--space-8);
+}
+.quick-open .command-option small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+.quick-open .command-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quick-open .palette-search button {
+  padding: var(--space-4);
+}
+.context-menu {
+  position: fixed;
+  z-index: 2500;
+  min-width: 210px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #001c40;
+  box-shadow: 0 4px 16px #0006;
+}
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  height: 28px;
+  padding: var(--space-4) var(--space-12);
+  border-radius: 2px;
+}
+.context-menu button:focus {
+  background: #003f8e;
+  outline: none;
+}
+.context-menu .danger {
+  color: #ff9da4;
+}
+.context-separator {
+  height: 1px;
+  margin: var(--space-4) var(--space-8);
+  background: var(--line);
+}
+.tree-row.drop-target,
+.project-label.drop-target {
+  outline: 1px solid #bbdaff;
+  outline-offset: -1px;
+  background: #00346e;
+}
+
+.tree-row.cut-item {
+  opacity: 0.5;
 }
