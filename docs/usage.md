@@ -74,6 +74,10 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 ## Read and edit
 
+Mouse dragging selects source text, including with Vim enabled; it does not move characters by drag-and-drop.
+Right-click selected source text for **Cut**, **Copy**, or **Paste**, or selected preview text for **Copy**.
+These use the system text clipboard independently of Vim commands. Cut/Paste stay unsaved until you save and can be undone.
+
 New windows open slightly offset from the current window, staying inside that display's work area.
 When opening a remote workspace, the welcome page and Explorer show the SSH connection state before loading files.
 Connection failures retain the SSH error and offer **Reconnect**, which retries the requested folder. A missing-folder

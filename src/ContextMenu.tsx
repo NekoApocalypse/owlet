@@ -12,12 +12,14 @@ export default function ContextMenu({
   items,
   onCommand,
   onClose,
+  label = "File actions",
 }: {
   x: number;
   y: number;
   items: MenuItem[];
   onCommand(id: string, args?: Record<string, unknown>): void;
   onClose(): void;
+  label?: string;
 }) {
   const menu = useRef<HTMLDivElement>(null),
     [position, setPosition] = useState({ x, y });
@@ -46,7 +48,7 @@ export default function ContextMenu({
     <div
       className="context-menu"
       role="menu"
-      aria-label="File actions"
+      aria-label={label}
       ref={menu}
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}

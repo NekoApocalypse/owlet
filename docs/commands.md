@@ -88,6 +88,11 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 
 ## Preview reading and preferences
 
+Text context menus use `editor.cut`, `editor.copy`, and `editor.paste` with `{group?, path?}` (path guards against a changed tab),
+and `preview.copy({group?, text?})`. Omit arguments to use the active pane's selection. Preview `text` is an optional selection
+snapshot captured before menu focus changes. These commands use the system text clipboard independently of Vim registers.
+Cut/Paste change only the unsaved source buffer and remain undoable. They reject a changed editor while clipboard access is pending.
+
 | Action | Command and arguments |
 | --- | --- |
 | Find literal preview text | `preview.find({group?, search?})`; omitted search focuses/reopens the pane's query; at most 512 characters |

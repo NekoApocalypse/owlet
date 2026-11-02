@@ -34,7 +34,12 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
-import Editor, { editorAction, vimCommand } from "./Editor";
+import Editor, {
+  editorAction,
+  vimCommand,
+  sourceView,
+  sourceClipboard,
+} from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import Welcome from "./Welcome";
@@ -231,6 +236,14 @@ export default function App() {
     kind: "local",
   });
   const [root, setRoot] = useState("");
+  const [textMenu, setTextMenu] = useState<{
+    x: number;
+    y: number;
+    group: number;
+    path: string;
+    kind: "editor" | "preview";
+    text: string;
+  } | null>(null);
   const [documents, setDocuments] = useState<Record<string, Document>>({});
   const [viewModes, setViewModes] = useState<Record<string, Document["mode"]>>(
     {},
@@ -2182,6 +2195,57 @@ export default function App() {
           );
         },
       })),
+      ...(["cut", "copy", "paste"] as const).map((action) => ({
+        id: `editor.${action}`,
+        title: `Editor: ${action[0].toUpperCase() + action.slice(1)} Text`,
+        enabled: groups(layout).some((group) => {
+          const doc = documents[group.active || ""];
+          return (
+            doc &&
+            !doc.image &&
+            (viewModes[`${group.id}:${doc.path}`] || doc.mode) !== "preview"
+          );
+        }),
+        parameters: {
+          group: "Optional group ID",
+          path: "Optional expected active file path",
+        },
+        run: (args: Record<string, any>) => {
+          const group = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          if (!group || (args.path && group.active !== args.path))
+            throw new Error("The target tab has changed");
+          return sourceClipboard(
+            action,
+            document.querySelector(`[data-group="${group.id}"] .cm-editor`),
+          );
+        },
+      })),
+      {
+        id: "preview.copy",
+        title: "Preview: Copy Selected Text",
+        parameters: {
+          group: "Optional group ID",
+          text: "Optional selection captured before opening a menu",
+        },
+        run: (args: Record<string, any>) => {
+          const pane = document.querySelector(
+            `[data-preview-group="${args.group ?? groupRef.current}"] .markdown-preview`,
+          );
+          const selection = window.getSelection();
+          const text =
+            args.text ??
+            (pane &&
+            selection?.anchorNode &&
+            selection.focusNode &&
+            pane.contains(selection.anchorNode) &&
+            pane.contains(selection.focusNode)
+              ? selection.toString()
+              : "");
+          return text ? navigator.clipboard.writeText(text) : false;
+        },
+      },
       ...(["source", "preview", "both"] as const).map((mode) => ({
         id: `markdown.${mode}`,
         title: `Markdown: ${{ source: "Show Raw Source", preview: "Show Preview", both: "Show Source and Preview" }[mode]}`,
@@ -3132,6 +3196,37 @@ export default function App() {
       <section
         className={`editor-group ${activeGroup === group.id ? "active-group" : ""}`}
         data-group={group.id}
+        onContextMenuCapture={(event) => {
+          const target = event.target as HTMLElement;
+          const editor = target.closest<HTMLElement>(".cm-content");
+          const preview = target.closest<HTMLElement>(".markdown-preview");
+          if ((!editor && !preview) || !doc) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const view = sourceView(editor);
+          const selection = window.getSelection();
+          const text = view
+            ? view.state.sliceDoc(
+                view.state.selection.main.from,
+                view.state.selection.main.to,
+              )
+            : preview &&
+                selection?.anchorNode &&
+                selection.focusNode &&
+                preview.contains(selection.anchorNode) &&
+                preview.contains(selection.focusNode)
+              ? selection.toString()
+              : "";
+          setFileMenu(null);
+          setTextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            group: group.id,
+            path: doc.path,
+            kind: editor ? "editor" : "preview",
+            text,
+          });
+        }}
         onPointerDown={() => execute("group.focus", { group: group.id })}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -3757,6 +3852,32 @@ export default function App() {
           items={contextItems}
           onCommand={execute}
           onClose={() => setFileMenu(null)}
+        />
+      )}
+      {textMenu && (
+        <ContextMenu
+          x={textMenu.x}
+          y={textMenu.y}
+          label="Text actions"
+          items={
+            textMenu.kind === "editor"
+              ? ["cut", "copy", "paste"].map((action) => ({
+                  id: `editor.${action}`,
+                  label: action[0].toUpperCase() + action.slice(1),
+                  args: { group: textMenu.group, path: textMenu.path },
+                  disabled: action !== "paste" && !textMenu.text,
+                }))
+              : [
+                  {
+                    id: "preview.copy",
+                    label: "Copy",
+                    args: { group: textMenu.group, text: textMenu.text },
+                    disabled: !textMenu.text,
+                  },
+                ]
+          }
+          onCommand={execute}
+          onClose={() => setTextMenu(null)}
         />
       )}
       <main className="workspace">
