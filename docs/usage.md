@@ -74,6 +74,9 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 ## Read and edit
 
+When tabs overflow, tiny indicators show which side has more tabs. Scroll over the tab strip with a mouse wheel or trackpad;
+there are no tab-strip scrollbars. Selecting a tab or resizing its group brings the active tab into view.
+
 - `Ctrl+Shift+P` or `F1` opens the command palette.
 - `Ctrl+S` saves. Files are not saved automatically.
 - `Ctrl+F` searches the focused source editor or Markdown preview. Syntax highlighting does not start a language server.
@@ -198,6 +201,8 @@ Opening or activating a file reveals it in the Explorer: its parent folders expa
 scrolls to it without moving keyboard focus. This also follows tab and split-group switches. Only the necessary ancestor
 folders and directory pages are loaded. A hidden Explorer stays hidden until reopened; files outside the workspace and
 Settings have no tree target. Hidden ancestors of the active file are visible without changing Show hidden files.
+The Explorer's right edge reserves an 8-pixel non-draggable gutter for resizing, alongside the thin visible divider.
+File dragging and the scrollbar remain inside the tree, outside that resize area.
 
 Right-click an Explorer item or file tab for **New File**, **New Folder**, **Cut**, **Copy**, **Paste**, **Copy Path**, **Copy Relative Path**, **Rename**, and
 **Delete**. SSH file menus also offer **Download**. New items are created beside the clicked file or inside the clicked folder.

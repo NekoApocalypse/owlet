@@ -227,6 +227,9 @@ input {
 .sidebar-wrap {
   min-width: 160px;
   flex-shrink: 0;
+  /* Reserve a non-draggable resize gutter outside rows and the scrollbar. */
+  padding-right: var(--space-8);
+  background: #001c40;
 }
 .explorer {
   height: 100%;
@@ -337,13 +340,29 @@ input {
   height: 12px;
 }
 .sidebar-handle {
-  width: 4px;
-  background: #404f7d;
+  position: relative;
+  width: 12px;
+  margin-left: calc(-1 * var(--space-8));
   cursor: col-resize;
   flex-shrink: 0;
   z-index: 4;
+  touch-action: none;
+  user-select: none;
 }
-.sidebar-handle:hover,
+.sidebar-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 4px;
+  background: #404f7d;
+  pointer-events: none;
+}
+.sidebar-handle:hover::after,
+.sidebar-handle:active::after {
+  background: var(--project-color, #bbdaff);
+}
 .split-handle:hover,
 .terminal-resizer:hover {
   background: #bbdaff;
@@ -408,12 +427,40 @@ input {
   height: var(--bar-height);
   flex-shrink: 0;
 }
-.tabs {
-  display: flex;
+.tabs-viewport {
+  position: relative;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+}
+.tabs {
+  display: flex;
+  height: 100%;
   overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.tab-overflow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  display: grid;
+  place-items: center;
+  color: #bbdaff;
+  background: #001733e6;
+  pointer-events: none;
+}
+.tab-overflow-left {
+  left: 0;
+}
+.tab-overflow-right {
+  right: 0;
 }
 .tab {
   height: calc(var(--bar-height) - 1px);
@@ -1263,7 +1310,6 @@ input {
 .active-group .tab.active-tab {
   border-top-color: var(--project-color);
 }
-.sidebar-handle:hover,
 .split-handle:hover,
 .terminal-resizer:hover {
   background: var(--project-color);

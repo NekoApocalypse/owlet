@@ -38,6 +38,7 @@ import Editor, { editorAction, vimCommand } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import Welcome from "./Welcome";
+import TabStrip from "./TabStrip";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
@@ -250,6 +251,11 @@ export default function App() {
   const [activeGroup, setActiveGroup] = useState(1);
   const [sidebar, setSidebar] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(252);
+  const sidebarResize = useRef<{
+    pointer: number;
+    x: number;
+    width: number;
+  } | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>(
@@ -3154,7 +3160,7 @@ export default function App() {
         }}
       >
         <div className="tabs-bar">
-          <div className="tabs" role="tablist">
+          <TabStrip active={group.active}>
             {group.tabs.map((path) => {
               const terminalTab = terminalSessions.find(
                 (item) => item.id === path,
@@ -3225,7 +3231,7 @@ export default function App() {
                 </div>
               );
             })}
-          </div>
+          </TabStrip>
           <div className="group-actions">
             <button
               title="Split right"
@@ -3783,16 +3789,34 @@ export default function App() {
               style={{ display: sidebar ? undefined : "none" }}
               role="separator"
               aria-label="Resize Explorer"
-              onPointerDown={(event) =>
-                event.currentTarget.setPointerCapture(event.pointerId)
-              }
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  execute("explorer.setWidth", { width: event.clientX });
+              aria-orientation="vertical"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                sidebarResize.current = {
+                  pointer: event.pointerId,
+                  x: event.clientX,
+                  width: sidebarWidth,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
               }}
-              onPointerUp={(event) =>
-                event.currentTarget.releasePointerCapture(event.pointerId)
-              }
+              onPointerMove={(event) => {
+                const drag = sidebarResize.current;
+                if (
+                  drag?.pointer === event.pointerId &&
+                  event.currentTarget.hasPointerCapture(event.pointerId)
+                )
+                  execute("explorer.setWidth", {
+                    width: drag.width + event.clientX - drag.x,
+                  });
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId))
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onLostPointerCapture={() => {
+                sidebarResize.current = null;
+              }}
             />
           </>
         }

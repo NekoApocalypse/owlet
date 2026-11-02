@@ -3,6 +3,18 @@
 Opening a file with Ctrl+P, clicking a tab, or focusing a split group now reveals that file in the Explorer. Its parents
 expand, its row is selected, and the tree scrolls to it. Keyboard focus stays where you were working.
 
+The Explorer divider has a 12-pixel resize target, including an 8-pixel non-draggable gutter at the right edge of the
+sidebar. File rows and the scrollbar end before this gutter. The visible divider stays 4 pixels wide; dragging it follows
+the pointer delta so grabbing either side does not make the Explorer jump.
+
+Overflowing tab strips keep their normal height without horizontal or vertical scrollbars. Tiny left/right chevrons indicate
+off-screen tabs; mouse-wheel or trackpad scrolling moves through them. Activating a tab or resizing its group keeps the active
+tab in view. Each split group tracks its own overflow, and its split controls remain visible.
+
+![Overflowing tabs with subtle edge indicators and no scrollbar](images/tab-overflow.png)
+
+![Explorer resize gutter separated from file rows and scrollbar](images/explorer-resize.png)
+
 Preview zoom shortcuts now work immediately after a tab or Explorer click, as well as inside the preview:
 
 - **Ctrl++** or **Ctrl+=**: zoom in.
@@ -35,6 +47,10 @@ its own controls. This change adds no new settings or backend protocol.
 ## Validation
 
 - Production build passed.
+- Packaged resize acceptance passed across five grab positions: no file drag, no starting jump, capture/release, separate scrollbar,
+  and a normal file drag through the existing move confirmation.
+- Packaged tab-overflow acceptance passed with 18 files: no scrollbar in either axis, 8-pixel edge indicators, wheel scrolling,
+  active-tab visibility after selection/resize, visible split controls, independent groups, and indicator cleanup after closing tabs.
 - Packaged Explorer reveal acceptance passed: Ctrl+P, tab and split-group focus, reactivating a collapsed tab, pagination,
   refresh, hidden paths, hidden sidebar, stale-request cancellation, Windows path case, and real SSH traversal.
 - Packaged preview/settings acceptance passed: tab and Explorer focus, plus/minus/reset, numpad keys, wheel zoom, shared
