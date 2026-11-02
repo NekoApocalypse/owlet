@@ -1,4 +1,19 @@
 @import url("./palette.css");
+.welcome-connection {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+  padding: var(--space-12);
+  border-left: 2px solid var(--accent);
+  background: #001733;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.welcome-connection button {
+  color: var(--accent);
+}
 :root {
   font-family: "Segoe UI", Inter, system-ui, sans-serif;
   color: #ffffff;

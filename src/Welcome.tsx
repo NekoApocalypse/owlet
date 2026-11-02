@@ -5,19 +5,21 @@ import {
   TerminalSquare,
   Command,
 } from "lucide-react";
-import { basename, type RecentWorkspace } from "./types";
+import { basename, type RecentWorkspace, type ConnectionState } from "./types";
 
 export default function Welcome({
   logo,
   recent,
   workspaceReady,
   hasWorkspace,
+  connection,
   execute,
 }: {
   logo: string;
   recent: RecentWorkspace[];
   workspaceReady: boolean;
   hasWorkspace: boolean;
+  connection: ConnectionState;
   execute(id: string, args?: Record<string, unknown>): void;
 }) {
   const unavailable = hasWorkspace
@@ -57,6 +59,28 @@ export default function Welcome({
             <p>Less between you and your work</p>
           </div>
         </header>
+        {connection.kind === "ssh" && connection.status !== "connected" && (
+          <div
+            className="welcome-connection"
+            role={connection.status === "connecting" ? "status" : "alert"}
+          >
+            <strong>
+              {connection.status === "connecting"
+                ? `Connecting to ${connection.target}…`
+                : `SSH connection unavailable: ${connection.target}`}
+            </strong>
+            {connection.status === "connecting" ? (
+              <span>Waiting for SSH before loading the remote folder.</span>
+            ) : (
+              <>
+                <span>{connection.error || "The connection was closed."}</span>
+                <button onClick={() => execute("connection.reconnect")}>
+                  Reconnect
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="welcome-sections">
           <section className="welcome-start" aria-label="Start">
             <h2>Start</h2>

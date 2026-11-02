@@ -74,6 +74,11 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 ## Read and edit
 
+New windows open slightly offset from the current window, staying inside that display's work area.
+When opening a remote workspace, the welcome page and Explorer show the SSH connection state before loading files.
+Connection failures retain the SSH error and offer **Reconnect**, which retries the requested folder. A missing-folder
+notice appears only after a live connection returns a filesystem error.
+
 When tabs overflow, tiny indicators show which side has more tabs. Scroll over the tab strip with a mouse wheel or trackpad;
 there are no tab-strip scrollbars. Selecting a tab or resizing its group brings the active tab into view.
 

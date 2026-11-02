@@ -5,6 +5,7 @@ const {
   dialog,
   shell,
   Menu,
+  screen,
 } = require("electron");
 const path = require("node:path");
 const iconPath = path.join(
@@ -106,12 +107,20 @@ const userSettings = new (require("./settings.cjs").UserSettings)(
 );
 ipcMain.handle("settings-read", () => userSettings.read());
 ipcMain.handle("settings-save", (_, args) => userSettings.save(args));
-function openWindow(root, file, session = sessionFor()) {
+function openWindow(root, file, session = sessionFor(), source) {
+  const previous =
+    source ||
+    BrowserWindow.getFocusedWindow() ||
+    BrowserWindow.fromId([...windows.values()].at(-1)?.windowId || -1);
+  const bounds = previous?.getNormalBounds();
+  const display = bounds
+    ? screen.getDisplayMatching(bounds)
+    : screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 940,
-    minWidth: 850,
-    minHeight: 600,
+    ...require("./window-placement.cjs").windowPlacement(
+      display.workArea,
+      bounds,
+    ),
     backgroundColor: "#002451",
     icon: iconPath,
     title: "Owlet · Workspace",
@@ -346,7 +355,12 @@ ipcMain.handle("recent-open", async (event, id) => {
     openWindow(info.path, undefined, session);
   } else {
     void session.connect().catch(() => {});
-    openWindow(entry.path, undefined, session);
+    openWindow(
+      entry.path,
+      undefined,
+      session,
+      BrowserWindow.fromWebContents(event.sender),
+    );
   }
 });
 ipcMain.handle("file-menu", (event) => {

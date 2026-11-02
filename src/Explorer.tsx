@@ -10,7 +10,14 @@ import {
   FolderOpen,
   ArrowUpRight,
 } from "lucide-react";
-import { basename, dirname, isImage, isMarkdown, type Entry } from "./types";
+import {
+  basename,
+  dirname,
+  isImage,
+  isMarkdown,
+  type Entry,
+  type ConnectionState,
+} from "./types";
 type Listing = { entries: Entry[]; path: string; next: number | null };
 export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
   return isImage(path) ? (
@@ -27,6 +34,7 @@ export default function Explorer({
   activation,
   visible,
   caseInsensitive,
+  connection,
   cutPath,
   revision,
   onOpen,
@@ -41,6 +49,7 @@ export default function Explorer({
   activation: number;
   visible: boolean;
   caseInsensitive: boolean;
+  connection: ConnectionState;
   cutPath?: string;
   revision: number;
   onOpen(path: string): void;
@@ -56,6 +65,8 @@ export default function Explorer({
   const [hidden, setHidden] = useState(false);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [rootError, setRootError] = useState("");
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
   const tree = useRef<HTMLDivElement>(null);
   const [reveal, setReveal] = useState<{
     path: string;
@@ -130,7 +141,12 @@ export default function Explorer({
     } catch {}
   }
   async function load(path: string, offset = 0) {
-    if (!path || currentRoot.current !== root) return;
+    if (
+      !path ||
+      currentRoot.current !== root ||
+      connectionRef.current.status !== "connected"
+    )
+      return;
     if (inFlight.current.has(path)) {
       pending.current.add(path);
       return;
@@ -175,6 +191,13 @@ export default function Explorer({
     } catch (error) {
       if (currentRoot.current !== root || obsolete(path, started)) return;
       const message = String(error);
+      if (
+        connectionRef.current.status !== "connected" ||
+        /ssh:|spawn ssh|Connection (?:closed|timed out)/i.test(message)
+      ) {
+        onError(message);
+        return;
+      }
       if (
         /ENOENT|ENOTDIR|\[Errno (?:2|20)\]|No such file or directory|not a directory/i.test(
           message,
@@ -224,7 +247,7 @@ export default function Explorer({
     if (!root) return;
     void load(root);
     for (const dir of expanded) if (dir !== root) void load(dir);
-  }, [revision]);
+  }, [revision, connection.status]);
   useEffect(() => {
     const prefix = pathKey(root).replace(/\/$/, "") + "/";
     // Virtual documents and files outside this workspace have no tree row.
@@ -545,9 +568,15 @@ export default function Explorer({
         className="tree"
         ref={tree}
         data-testid="explorer-tree"
-        data-ready={!!listings[root]}
+        data-ready={connection.status === "connected" && !!listings[root]}
       >
-        {rootError ? (
+        {connection.status !== "connected" ? (
+          <p className="tree-hint" role="status">
+            {connection.status === "connecting"
+              ? "Connecting to workspace…"
+              : "Connection unavailable. Reconnect to load this folder."}
+          </p>
+        ) : rootError ? (
           <p className="tree-hint" role="status">
             {rootError}
           </p>

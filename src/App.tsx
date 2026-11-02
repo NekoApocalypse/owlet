@@ -2797,6 +2797,8 @@ export default function App() {
     });
     window.lwr.bootstrap().then(async (config) => {
       setConnection(config.connection);
+      // Retain the requested workspace even when the initial SSH attempt fails.
+      if (config.root !== undefined) setRoot(config.root);
       try {
         let preferences = await window.lwr.readSettings();
         if (preferences.revision === "missing" && legacyVim.current)
@@ -3537,6 +3539,7 @@ export default function App() {
             recent={recent}
             workspaceReady={connected && !!root}
             hasWorkspace={!!root}
+            connection={connection}
             execute={execute}
           />
         )}
@@ -3776,6 +3779,7 @@ export default function App() {
                 activation={explorerActivation}
                 visible={sidebar}
                 caseInsensitive={local}
+                connection={connection}
                 revision={refresh}
                 onOpen={(path) => execute("file.open", { path })}
                 onFolder={() => execute("window.openFolder")}
