@@ -73,7 +73,12 @@ export default function Welcome({
               <span>Waiting for SSH before loading the remote folder.</span>
             ) : (
               <>
-                <span>{connection.error || "The connection was closed."}</span>
+                <span>
+                  {connection.error || "The connection was closed."}
+                  {connection.retryDelay
+                    ? ` Retrying automatically in ${connection.retryDelay / 1000}s.`
+                    : ""}
+                </span>
                 <button onClick={() => execute("connection.reconnect")}>
                   Reconnect
                 </button>

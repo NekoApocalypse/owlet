@@ -14,6 +14,13 @@ Each window owns its workspace. Windows for the same SSH host share a connection
 shells and preserves editor buffers; other hosts and local windows are unaffected. A remote multiplexer owns persistent
 agent sessions. Local folders need neither SSH nor Python.
 
+Dropped SSH connections reconnect automatically. Failed attempts back off through 1, 2, 4, 8, 16, then 30 seconds;
+the status bar shows when Owlet is retrying. SSH keepalives detect silent outages, which can take roughly 30 seconds.
+**Connection: Reconnect SSH** retries immediately. **Connection: Disconnect SSH / Stop Reconnecting** stops retries
+for that host until you reconnect; closing its last window also stops them. Authentication and host-key failures need
+attention and do not retry automatically. Files and Explorer recover without reloading the window; unsaved buffers stay
+intact and save conflicts still require review. Direct shells must be started again explicitly after reconnecting.
+
 ## Return to recent work
 
 The welcome page shows Owlet's logo and tagline, **Start** actions, and the six most recent local/SSH workspaces.

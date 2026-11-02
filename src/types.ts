@@ -11,6 +11,8 @@ export type ConnectionState = {
   target: string;
   home?: string;
   error?: string;
+  retryDelay?: number;
+  retryAttempt?: number;
 };
 export type Entry = {
   name: string;

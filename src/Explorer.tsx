@@ -574,7 +574,9 @@ export default function Explorer({
           <p className="tree-hint" role="status">
             {connection.status === "connecting"
               ? "Connecting to workspace…"
-              : "Connection unavailable. Reconnect to load this folder."}
+              : connection.retryDelay
+                ? "Connection lost. Retrying automatically…"
+                : "Connection unavailable. Reconnect to load this folder."}
           </p>
         ) : rootError ? (
           <p className="tree-hint" role="status">

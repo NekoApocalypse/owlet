@@ -333,6 +333,7 @@ export default function App() {
     layoutRef = useRef(layout),
     groupRef = useRef(activeGroup),
     connectionRef = useRef(connection);
+  const initialRoot = useRef<string | undefined>(undefined);
   docsRef.current = documents;
   layoutRef.current = layout;
   groupRef.current = activeGroup;
@@ -1379,8 +1380,13 @@ export default function App() {
       },
       {
         id: "connection.disconnect",
-        title: "Connection: Disconnect SSH (Ends Direct Shells)",
-        enabled: !local && connected,
+        title:
+          "Connection: Disconnect SSH / Stop Reconnecting (Ends Direct Shells)",
+        enabled:
+          !local &&
+          (connected ||
+            connection.status === "connecting" ||
+            !!connection.retryDelay),
         run: () => window.lwr.disconnect(),
       },
       {
@@ -2458,6 +2464,7 @@ export default function App() {
           const summary = {
             root,
             connection: connection.status,
+            connectionDetails: connection,
             vimMode,
             fileClipboard,
             layout,
@@ -2857,9 +2864,15 @@ export default function App() {
           items.map((item) => ({ ...item, status: "disconnected" })),
         );
       setConnection(state);
-      if (state.error) report(state.error);
+      if (state.status === "connected") {
+        if (state.kind === "ssh" && initialRoot.current === undefined)
+          setRoot((current) => current || state.home || "/");
+        setRefresh((value) => value + 1);
+      }
+      if (state.error && !state.retryDelay) report(state.error);
     });
     window.lwr.bootstrap().then(async (config) => {
+      initialRoot.current = config.root;
       setConnection(config.connection);
       // Retain the requested workspace even when the initial SSH attempt fails.
       if (config.root !== undefined) setRoot(config.root);
@@ -3171,7 +3184,9 @@ export default function App() {
             <span>
               {connected
                 ? "Your old shell ended when SSH disconnected."
-                : "SSH disconnected. Reconnect to continue."}
+                : connection.retryDelay || connection.status === "connecting"
+                  ? "SSH disconnected. Reconnecting automatically…"
+                  : "SSH disconnected. Reconnect to continue."}
             </span>
             {connected && (
               <button
@@ -4199,7 +4214,7 @@ export default function App() {
           </button>
           <button
             className={`connection-status ${connection.status}`}
-            title={`${connection.status} · ${connection.target}\n${root || "Opening workspace"}\nOpen a folder`}
+            title={`${connection.status} · ${connection.target}\n${connection.error || root || "Opening workspace"}\nOpen a folder`}
             aria-label={local ? "Local workspace" : "Remote workspace"}
             onClick={() => execute("window.openFolder")}
           >
@@ -4215,8 +4230,12 @@ export default function App() {
                 ? "Local"
                 : `SSH: ${connection.target}`
               : connection.status === "connecting"
-                ? "Connecting…"
-                : "Disconnected"}
+                ? connection.retryAttempt
+                  ? "Reconnecting…"
+                  : "Connecting…"
+                : connection.retryDelay
+                  ? `Retrying in ${connection.retryDelay / 1000}s…`
+                  : "Disconnected"}
           </button>
           {connection.status === "disconnected" && (
             <button onClick={() => execute("connection.reconnect")}>

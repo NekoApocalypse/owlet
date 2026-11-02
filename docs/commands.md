@@ -88,6 +88,12 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 
 ## Preview reading and preferences
 
+`connection.reconnect()` immediately connects or joins the active SSH attempt; it cancels a pending automatic retry timer.
+`connection.disconnect()` stops automatic retries and ends that host's direct shells, including while connecting or waiting
+to retry. Windows on the same host share one retry loop. Transient connection loss uses capped exponential backoff;
+failed writes are never replayed. `workspace.state({readOnly:true}).connectionDetails` exposes `retryDelay` (milliseconds while
+waiting) and `retryAttempt` alongside the existing status/error fields.
+
 Text context menus use `editor.cut`, `editor.copy`, and `editor.paste` with `{group?, path?}` (path guards against a changed tab),
 and `preview.copy({group?, text?})`. Omit arguments to use the active pane's selection. Preview `text` is an optional selection
 snapshot captured before menu focus changes. These commands use the system text clipboard independently of Vim registers.

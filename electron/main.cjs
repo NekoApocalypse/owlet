@@ -182,6 +182,11 @@ function openWindow(root, file, session = sessionFor(), source) {
         session.notify("terminal-close", { terminal });
         terminals.delete(terminal);
       }
+    if (
+      session.kind === "ssh" &&
+      ![...windows.values()].some((record) => record.session === session)
+    )
+      session.close();
   });
   if (process.env.LWR_DEV_URL) win.loadURL(process.env.LWR_DEV_URL);
   else win.loadFile(path.join(__dirname, "../dist/index.html"));
