@@ -16,6 +16,13 @@ agent sessions. Local folders need neither SSH nor Python.
 
 ## Return to recent work
 
+The welcome page shows Owlet's logo and tagline, **Start** actions, and the six most recent local/SSH workspaces.
+Start offers **Open Folder**, **Connect Remote**, **Search File** (`Ctrl+P`), **Open Terminal** (`` Ctrl+` ``), and
+**Command Palette** (`Ctrl+Shift+P`). Open Folder follows the window's local/remote context. Search and Terminal require
+a connected workspace; an empty window explains how to enable them. Open Terminal reveals and focuses the terminal.
+Click a recent entry to reopen it, or **Open Recent…** to search the full history. The page stacks vertically in narrow panes.
+Recent rows stay on one line; long paths truncate from the left, with the full location available on hover.
+
 The top-left **File** menu offers **New Window**, **Open Local Folder**, **Connect to Remote**, and **Open Recent**.
 New Window (`Ctrl+Shift+N`) opens a clean welcome screen. Open Recent lists local folders and SSH folders together,
 with the host shown beside each remote location. Choose **Recently Opened Windows…** to search the full list, or press

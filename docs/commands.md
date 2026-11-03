@@ -22,6 +22,7 @@ Commands that require a path, number, or text offer a prompt when invoked from t
 | --- | --- |
 | Local folder, remote connection, new window, reload, close, minimize, maximize, fullscreen, application zoom | `workspace.openLocal`, `workspace.openSSH`, `window.*`, `view.zoom.*` |
 | Open remote connection from the blue bottom-left icon or welcome screen | `workspace.openSSH`; searches for **remote**, **Open Remote**, and **SSH** find it |
+| Welcome Start actions and inline local/SSH Recents | `window.openFolder`, `workspace.openSSH`, `file.quickOpen`, `terminal.focus`, `commands.show`, `workspace.openRecent({id})`; Open Recent without an ID opens the full picker |
 | File menu, clean new window, search/open recent local or SSH windows, inspect/remove/clear history | `menu.file`, `window.newEmpty`, `workspace.openRecent`, `.recent`, `.removeRecent`, `.clearRecent`; recent IDs come from `workspace.recent({readOnly: true})` via the command registry |
 | Explorer refresh, visibility, hidden files, expand/collapse a folder, load more entries, resize | `explorer.refresh`, `.toggle`, `.hidden`, `.expand`, `.toggleFolder`, `.collapseFolder`, `.collapse`, `.loadMore`, `.setWidth`, `.widen`, `.narrow` |
 | Open, save, save all, close, revert, copy path, inspect unsaved text, compare changes | `file.open`, `.save`, `.saveAll`, `.close`, `.revert`, `.copyPath`, `.inspect`, `.compare` |

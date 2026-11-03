@@ -37,6 +37,7 @@ import Explorer, { FileIcon } from "./Explorer";
 import Editor, { editorAction, vimCommand } from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
+import Welcome from "./Welcome";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
@@ -3481,55 +3482,13 @@ export default function App() {
             </div>
           </>
         ) : (
-          <div className="welcome">
-            <img className="welcome-logo" src={owletLogo} alt="Owlet" />
-            <p className="eyebrow">LESS BETWEEN YOU AND YOUR WORK</p>
-            <h1>A clearer view.</h1>
-            <p>
-              Read the work. Follow the reasoning.
-              <br />
-              {root
-                ? "Open a file from your workspace."
-                : "Open a folder or return to recent work."}
-            </p>
-            <div className="welcome-hints">
-              <span>
-                Save changes <kbd>Ctrl S</kbd>
-              </span>
-              <span>
-                Find in source <kbd>Ctrl F</kbd>
-              </span>
-              <span>
-                Toggle terminal <kbd>Ctrl `</kbd>
-              </span>
-              <span>
-                New project window <code>owlet .</code>
-              </span>
-            </div>
-            <button
-              className="text-button"
-              onClick={() => execute("window.openFolder")}
-            >
-              <FolderOpen size={15} />
-              {root ? "Open a different folder" : "Open a local folder"}
-              <ArrowUpRight size={13} />
-            </button>
-            <button
-              className="text-button"
-              onClick={() =>
-                execute(local ? "workspace.openSSH" : "workspace.openLocal")
-              }
-            >
-              {local ? <Wifi size={15} /> : <FolderOpen size={15} />}
-              {local ? "Connect to Remote" : "Open a local folder"}
-            </button>
-            <button
-              className="text-button"
-              onClick={() => execute("workspace.openRecent")}
-            >
-              <FolderOpen size={15} /> Open Recent
-            </button>
-          </div>
+          <Welcome
+            logo={owletLogo}
+            recent={recent}
+            workspaceReady={connected && !!root}
+            hasWorkspace={!!root}
+            execute={execute}
+          />
         )}
       </section>
     );

@@ -71,7 +71,7 @@ async function opened(page, id, args) {
   });
   const blank = await blankOpened;
   await ready(blank);
-  await blank.getByRole("heading", { name: "A clearer view." }).waitFor();
+  await blank.getByRole("heading", { name: "Owlet", exact: true }).waitFor();
   assert.equal(
     (await command(blank, "workspace.state", { readOnly: true })).root,
     "",
