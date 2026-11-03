@@ -31,6 +31,7 @@ export type Document = RemoteFile & {
   mode: "source" | "preview" | "both";
   image?: string;
   pdf?: string;
+  unsupported?: string;
   conflict?: RemoteFile;
   missing?: boolean;
   lineEnding?: string;

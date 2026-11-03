@@ -88,6 +88,13 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 
 ## Preview reading and preferences
 
+`file.open({path, group?})` creates a temporary read-only Unsupported file tab for binary/encoding/size-limit failures and
+unreadable PDF/image content. `file.inspect({readOnly:true})` exposes its `unsupported` reason. Explorer reveals and focuses
+the selected file; normal supported-file activation retains the existing focus behavior. Navigation through `file.open`,
+`tab.activate`, `group.focus`, or terminal focus automatically dismisses the temporary tab when it loses its active context.
+The same lifecycle applies to mouse/keyboard navigation; no separate button-only action exists. Unsupported views do not
+poll/re-read their contents, cannot be edited or saved, and are not retained after dismissal.
+
 PDF files open through `file.open({path, group?})`. The viewer controls and command palette share
 `pdf.nextPage`, `pdf.previousPage`, `pdf.page({page, group?})` (1-based; omitted page prompts),
 `pdf.zoomIn`, `pdf.zoomOut`, `pdf.actualSize`, `pdf.fitWidth`, and `pdf.copyPageText`.

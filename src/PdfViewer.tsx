@@ -23,11 +23,13 @@ export default function PdfViewer({
   path,
   group,
   onCommand,
+  onUnavailable,
 }: {
   data: string;
   path: string;
   group: number;
   onCommand(id: string, args?: Record<string, unknown>): void;
+  onUnavailable(reason: string): void;
 }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(1),
@@ -39,6 +41,8 @@ export default function PdfViewer({
   const scroll = useRef<HTMLDivElement>(null),
     surface = useRef<HTMLDivElement>(null);
   const text = useRef("");
+  const unavailable = useRef(onUnavailable);
+  unavailable.current = onUnavailable;
   const actualScale = useRef(1);
   const command = (id: string, args = {}) =>
     onCommand(`pdf.${id}`, { ...args, group });
@@ -69,7 +73,7 @@ export default function PdfViewer({
       })
       .catch((reason) => {
         if (!cancelled)
-          setError(
+          unavailable.current(
             reason.name === "PasswordException"
               ? "Password-protected PDFs are not supported yet."
               : `Could not open PDF: ${reason.message}`,

@@ -49,6 +49,7 @@ import SettingsView from "./SettingsView";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { pdfCommand, type PdfAction } from "./pdfCommands";
+import { unsupportedReason } from "./unsupported";
 import {
   SETTINGS_PATH,
   defaults,
@@ -172,9 +173,11 @@ function SourcePreview({
 function ImageViewer({
   document,
   onCommand,
+  onUnavailable,
 }: {
   document: Document;
   onCommand(id: string, args?: Record<string, unknown>): void;
+  onUnavailable(reason: string): void;
 }) {
   const [zoom, setZoom] = useState<number | null>(null);
   useEffect(() => {
@@ -216,6 +219,11 @@ function ImageViewer({
         <img
           alt={basename(document.path)}
           src={document.image}
+          onError={() =>
+            onUnavailable(
+              "This image format or file content could not be decoded.",
+            )
+          }
           style={
             zoom
               ? { maxWidth: "none", maxHeight: "none", zoom }
@@ -448,6 +456,7 @@ export default function App() {
   async function openFile(path: string, group = groupRef.current) {
     if (path === SETTINGS_PATH) return openSettings("preview", group);
     if (docsRef.current[path]) {
+      if (docsRef.current[path].unsupported) setSidebar(true);
       activate(path, group);
       return;
     }
@@ -503,9 +512,19 @@ export default function App() {
                 : "source",
             };
           }
-          setDocuments((previous) => ({ ...previous, [path]: document }));
           return document;
         } catch (error) {
+          const reason = unsupportedReason(error);
+          if (reason)
+            return {
+              path,
+              text: "",
+              saved: "",
+              revision: "",
+              stamp: "",
+              mode: "preview",
+              unsupported: reason,
+            } as Document;
           report(error);
           return undefined;
         } finally {
@@ -515,7 +534,76 @@ export default function App() {
       })();
       opening.current.set(path, pending);
     }
-    if (await pending) activate(path, group);
+    const document = await pending;
+    if (document) {
+      setDocuments((previous) => ({ ...previous, [path]: document }));
+      if (document.unsupported) setSidebar(true);
+      activate(path, group);
+    }
+  }
+  function dismissUnsupported(keepFocused = false) {
+    let next = layoutRef.current;
+    const removed = new Set<string>();
+    for (const group of groups(next)) {
+      const tabs = group.tabs.filter((path) => {
+        const remove =
+          !!docsRef.current[path]?.unsupported &&
+          !(
+            keepFocused &&
+            group.id === groupRef.current &&
+            group.active === path
+          );
+        if (remove) removed.add(path);
+        return !remove;
+      });
+      if (tabs.length !== group.tabs.length) {
+        next = mapGroup(next, group.id, (g) => ({
+          ...g,
+          tabs,
+          active: g.active && tabs.includes(g.active) ? g.active : tabs.at(-1),
+        }));
+        if (!tabs.length && groups(next).length > 1)
+          next = removeGroup(next, group.id)!;
+      }
+    }
+    if (!removed.size) return;
+    layoutRef.current = next;
+    setLayout(next);
+    if (!groups(next).some((g) => g.id === groupRef.current))
+      setActiveGroup(groups(next)[0].id);
+    const retained = new Set(groups(next).flatMap((g) => g.tabs));
+    setDocuments((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(
+          ([path]) => !removed.has(path) || retained.has(path),
+        ),
+      ),
+    );
+  }
+  useEffect(() => {
+    dismissUnsupported(true);
+  }, [layout, activeGroup, documents]);
+  function unsupportedPreview(source: Document, reason: string) {
+    const current = docsRef.current[source.path];
+    if (
+      !current ||
+      current.pdf !== source.pdf ||
+      current.image !== source.image ||
+      current.text !== current.saved
+    )
+      return;
+    patch(source.path, {
+      unsupported: reason,
+      pdf: undefined,
+      image: undefined,
+    });
+    if (
+      groups(layoutRef.current).find((g) => g.id === groupRef.current)
+        ?.active === source.path
+    ) {
+      setSidebar(true);
+      setExplorerActivation((value) => value + 1);
+    }
   }
   const beneath = (path: string, parent: string) =>
     path === parent || path.startsWith(parent.replace(/\/$/, "") + "/");
@@ -738,7 +826,7 @@ export default function App() {
     replacementRevision?: string,
   ): Promise<boolean> {
     const doc = docsRef.current[path];
-    if (!doc || doc.image || doc.pdf) return false;
+    if (!doc || doc.image || doc.pdf || doc.unsupported) return false;
     if (doc.text === doc.saved && !replacementRevision) return true;
     if (saving.current.has(path)) return false;
     saving.current.add(path);
@@ -792,7 +880,7 @@ export default function App() {
     if (typeof discard !== "boolean")
       throw new Error("discard must be true or false.");
     const before = docsRef.current[path];
-    if (!before || before.image || before.pdf)
+    if (!before || before.image || before.pdf || before.unsupported)
       throw new Error("Open a text file first.");
     if (before.text !== before.saved && !discard)
       throw new Error(
@@ -1789,6 +1877,7 @@ export default function App() {
           !!current &&
           !current.image &&
           !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         run: (args) => saveFile(args.path || current!.path),
       },
@@ -1821,6 +1910,7 @@ export default function App() {
           !!current &&
           !current.image &&
           !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         parameters: {
           path: "Optional open file path",
@@ -1837,6 +1927,7 @@ export default function App() {
           !!current &&
           !current.image &&
           !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         run: () =>
           setPrompt({
@@ -1920,6 +2011,7 @@ export default function App() {
           !!current &&
           !current.image &&
           !current.pdf &&
+          !current.unsupported &&
           vimMode &&
           current.mode !== "preview",
         parameters: {
@@ -2038,6 +2130,7 @@ export default function App() {
             dirty: doc.text !== doc.saved,
             image: !!doc.image,
             pdf: !!doc.pdf,
+            unsupported: doc.unsupported,
             conflict: doc.conflict,
           };
           if (!args.readOnly)
@@ -2048,14 +2141,15 @@ export default function App() {
       {
         id: "editor.setText",
         title: "Editor: Replace Buffer Text…",
-        enabled: !!current && !current.image && !current.pdf,
+        enabled:
+          !!current && !current.image && !current.pdf && !current.unsupported,
         parameters: {
           path: "Optional open file path",
           text: "New unsaved buffer text; omit for a multiline editor",
         },
         run: (args) => {
           const doc = documents[args.path || current!.path];
-          if (!doc || doc.image || doc.pdf)
+          if (!doc || doc.image || doc.pdf || doc.unsupported)
             throw new Error("Choose an open text file");
           const apply = (text: string) => {
             if (typeof text !== "string")
@@ -2210,7 +2304,8 @@ export default function App() {
       ).map((action) => ({
         id: `editor.${action}`,
         title: `Editor: ${{ find: "Find in File", findNext: "Find Next", findPrevious: "Find Previous", replaceNext: "Replace Next Match", replaceAll: "Replace All Matches", closeFind: "Close Find", undo: "Undo", redo: "Redo", selectAll: "Select All", focus: "Focus Source Editor" }[action]}`,
-        enabled: !!current && !current.image && !current.pdf,
+        enabled:
+          !!current && !current.image && !current.pdf && !current.unsupported,
         parameters: {
           search: "Optional search string",
           replace: "Optional replacement",
@@ -2240,6 +2335,7 @@ export default function App() {
             doc &&
             !doc.image &&
             !doc.pdf &&
+            !doc.unsupported &&
             (viewModes[`${group.id}:${doc.path}`] || doc.mode) !== "preview"
           );
         }),
@@ -3209,7 +3305,10 @@ export default function App() {
             .map((group) => group.active)
             .filter(
               (path): path is string =>
-                !!path && path !== SETTINGS_PATH && !!docsRef.current[path],
+                !!path &&
+                path !== SETTINGS_PATH &&
+                !!docsRef.current[path] &&
+                !docsRef.current[path].unsupported,
             ),
         ),
       ];
@@ -3437,6 +3536,11 @@ export default function App() {
                   key={path}
                   className={`tab ${group.active === path ? "active-tab" : ""}`}
                   role="tab"
+                  aria-label={
+                    item?.unsupported
+                      ? `${label} — Unsupported file`
+                      : undefined
+                  }
                   aria-selected={group.active === path}
                   draggable
                   onMouseDown={(event) => {
@@ -3473,7 +3577,9 @@ export default function App() {
                     execute("tab.activate", { path, group: group.id })
                   }
                 >
-                  {terminalTab ? (
+                  {item?.unsupported ? (
+                    <AlertTriangle size={15} />
+                  ) : terminalTab ? (
                     <TerminalSquare size={15} />
                   ) : path === SETTINGS_PATH ? (
                     <SettingsIcon size={15} />
@@ -3606,7 +3712,7 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                {isMarkdown(doc.path) && (
+                {!doc.unsupported && isMarkdown(doc.path) && (
                   <div className="mode-switch">
                     {(["source", "preview", "both"] as const).map((mode) => (
                       <button
@@ -3645,7 +3751,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                {!doc.image && !doc.pdf && (
+                {!doc.image && !doc.pdf && !doc.unsupported && (
                   <button
                     title="Save (Ctrl+S)"
                     aria-label="Save file"
@@ -3679,7 +3785,19 @@ export default function App() {
               </div>
             )}
             <div className="document-body">
-              {doc.path === SETTINGS_PATH && doc.mode !== "source" ? (
+              {doc.unsupported ? (
+                <div className="unsupported-file" role="status">
+                  <AlertTriangle size={28} />
+                  <h2>Unsupported file</h2>
+                  <p>
+                    Owlet cannot display <strong>{basename(doc.path)}</strong>.
+                  </p>
+                  <p>{doc.unsupported}</p>
+                  <p className="unsupported-hint">
+                    This temporary tab closes when you switch away.
+                  </p>
+                </div>
+              ) : doc.path === SETTINGS_PATH && doc.mode !== "source" ? (
                 <SettingsView
                   text={doc.text}
                   file={settingsFile}
@@ -3696,10 +3814,15 @@ export default function App() {
                     path={doc.path}
                     group={group.id}
                     onCommand={execute}
+                    onUnavailable={(reason) => unsupportedPreview(doc, reason)}
                   />
                 </Suspense>
               ) : doc.image ? (
-                <ImageViewer document={doc} onCommand={execute} />
+                <ImageViewer
+                  document={doc}
+                  onCommand={execute}
+                  onUnavailable={(reason) => unsupportedPreview(doc, reason)}
+                />
               ) : doc.mode === "both" && isMarkdown(doc.path) ? (
                 <SourcePreview
                   ratio={previewRatios[`${group.id}:${doc.path}`] ?? 0.5}
@@ -4113,6 +4236,7 @@ export default function App() {
                 root={root}
                 selected={current?.path}
                 activation={explorerActivation}
+                focusSelected={!!current?.unsupported}
                 visible={sidebar}
                 caseInsensitive={local}
                 connection={connection}
@@ -4356,7 +4480,10 @@ export default function App() {
             restart={item.restart}
             destination={"terminal-slot-" + item.id}
             onError={report}
-            onFocus={() => setActiveTerminal(item.id)}
+            onFocus={() => {
+              setActiveTerminal(item.id);
+              dismissUnsupported();
+            }}
             onStatus={(status, pty) => updateTerminal(item.id, { status, pty })}
           />
         ))}
@@ -4463,7 +4590,9 @@ export default function App() {
           >
             {vimMode ? "VIM ON" : "VIM OFF"}
           </button>
-          {!current?.pdf && !current?.image && <span>UTF-8</span>}
+          {!current?.pdf && !current?.image && !current?.unsupported && (
+            <span>UTF-8</span>
+          )}
           <span>
             {current?.pdf
               ? "PDF"

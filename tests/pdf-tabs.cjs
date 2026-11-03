@@ -198,9 +198,9 @@ async function until(page, fn, arg) {
   await cmd(page, "file.open", {
     path: base.replaceAll("\\", "/") + "/broken.pdf",
   });
-  await page.locator(".pdf-error").waitFor();
+  await page.locator(".unsupported-file").waitFor();
   assert.match(
-    await page.locator(".pdf-error").innerText(),
+    await page.locator(".unsupported-file").innerText(),
     /Could not open PDF/,
   );
   await cmd(page, "file.close");

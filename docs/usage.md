@@ -81,6 +81,11 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 ## Read and edit
 
+Files that cannot be displayed open a temporary **Unsupported file** tab with the reason, and their Explorer row is revealed
+and focused. Switching to another file, editor group, or terminal closes the temporary tab. The command palette and switching
+away from the application do not dismiss it. Reopen the file after switching away to retry. Unknown extensions that contain
+valid text still open normally; SSH failures, missing files and permission errors remain separate errors.
+
 Open a `.pdf` file from Explorer, Ctrl+P, or a Markdown link to view it in a tab, locally or over SSH.
 Use the compact PDF toolbar for pages, zoom, fit-to-width, and copying page text. Text can also be selected and copied.
 The renderer, worker, fonts and CMaps are bundled locally and loaded on demand; no viewer code is sent over SSH.

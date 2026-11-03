@@ -33,6 +33,7 @@ export default function Explorer({
   root,
   selected,
   activation,
+  focusSelected = false,
   visible,
   caseInsensitive,
   connection,
@@ -48,6 +49,7 @@ export default function Explorer({
   root: string;
   selected?: string;
   activation: number;
+  focusSelected?: boolean;
   visible: boolean;
   caseInsensitive: boolean;
   connection: ConnectionState;
@@ -332,13 +334,14 @@ export default function Explorer({
             tree.current!.scrollTop += bounds.bottom - viewport.bottom;
           else if (bounds.top < viewport.top)
             tree.current!.scrollTop -= viewport.top - bounds.top;
-          // Keep editor/preview keyboard focus. Only selection and scroll move.
+          // Failed previews intentionally return keyboard focus to the file row.
+          if (focusSelected) row.focus({ preventScroll: true });
           setReveal(null);
         });
         return () => cancelAnimationFrame(frame);
       }
     }
-  }, [reveal, selected, visible, listings, expanded, loading]);
+  }, [reveal, selected, visible, listings, expanded, loading, focusSelected]);
   useEffect(() => {
     const action = (event: Event) => {
       const detail = (event as CustomEvent).detail;
