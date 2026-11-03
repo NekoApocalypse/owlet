@@ -1,8 +1,40 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import fs from "node:fs";
+import path from "node:path";
 export default defineConfig({
   plugins: [
     react(),
+    {
+      name: "pdf-assets",
+      configureServer(server) {
+        server.middlewares.use("/pdf-assets", (req, res, next) => {
+          const root = path.resolve("node_modules/pdfjs-dist");
+          const url = (req.url || "").split("?")[0];
+          if (!/^\/(cmaps|standard_fonts|wasm)\/[\w.-]+$/.test(url))
+            return next();
+          const file = path.resolve(root, "." + url);
+          if (!file.startsWith(root + path.sep) || !fs.existsSync(file))
+            return next();
+          res.setHeader(
+            "Content-Type",
+            file.endsWith(".wasm")
+              ? "application/wasm"
+              : "application/octet-stream",
+          );
+          fs.createReadStream(file).pipe(res);
+        });
+      },
+      closeBundle() {
+        for (const name of ["cmaps", "standard_fonts", "wasm", "LICENSE"]) {
+          const dest = path.resolve("dist/pdf-assets", name);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.cpSync(path.resolve("node_modules/pdfjs-dist", name), dest, {
+            recursive: true,
+          });
+        }
+      },
+    },
     {
       name: "dev-csp",
       apply: "serve",

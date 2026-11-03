@@ -84,6 +84,14 @@ directory listing, not when the window frame first appears.
 
 ## Source archives
 
+Machine-specific agent preferences belong in an ignored `AGENTS.local.md`; `AGENTS.md` asks agents to read it only when present.
+Private workflow scripts can live in ignored `.local/`. Neither location is required for contributors or included in source exports.
+
+A locally managed Windows launcher may set `OWLET_LAUNCHER` to an existing absolute `.exe` path. Owlet uses that path for
+taskbar relaunches and isolates its instance lock/browser cache by build location, so an older running build cannot absorb a
+newer build's launch. Settings and recent workspaces remain in the shared profile. Without this option, portable packages retain
+their normal behavior. The launcher, release-pointer management, and local shortcut policy are supplied by the local workflow.
+
 `npm run source:export` makes a clean source archive from an explicit file list. It excludes profiles, binaries, internal
 Trust Contracts, skill copies, and historical evidence containing private host details. It does not rewrite this
 working repository's history or publish anything.

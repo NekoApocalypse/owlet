@@ -309,22 +309,6 @@ export default function Preview({
         if (
           (event.ctrlKey || event.metaKey) &&
           !event.altKey &&
-          ["+", "=", "-", "0"].includes(event.key)
-        ) {
-          event.preventDefault();
-          event.stopPropagation();
-          onCommand(
-            event.key === "0"
-              ? "preview.zoom.reset"
-              : event.key === "-"
-                ? "preview.zoom.out"
-                : "preview.zoom.in",
-          );
-          return;
-        }
-        if (
-          (event.ctrlKey || event.metaKey) &&
-          !event.altKey &&
           !event.shiftKey &&
           event.key.toLowerCase() === "f"
         ) {

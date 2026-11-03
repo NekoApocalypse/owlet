@@ -124,6 +124,63 @@ let app;
     1,
   );
   await page.keyboard.press("Control+0");
+  await until(async () => (await state()).previewZoom === 1);
+  // Selecting a preview tab leaves keyboard focus on its tab button.
+  const activeTab = page.locator(`[data-group="${group}"] .tab.active-tab`);
+  await activeTab.click();
+  await activeTab.focus();
+  await page.keyboard.press("Control+Shift+=");
+  await until(async () => (await state()).previewZoom === 1.1);
+  await page.keyboard.press("Control+-");
+  await until(async () => (await state()).previewZoom === 1);
+  await page.keyboard.press("Control+NumpadAdd");
+  await until(async () => (await state()).previewZoom === 1.1);
+  await page.keyboard.press("Control+NumpadSubtract");
+  await until(async () => (await state()).previewZoom === 1);
+  await page.locator(".tree-row").filter({ hasText: "Reading.md" }).click();
+  await page.keyboard.press("Control+=");
+  await until(async () => (await state()).previewZoom === 1.1);
+  await page.keyboard.press("Control+0");
+  await until(async () => (await state()).previewZoom === 1);
+  assert.deepEqual(
+    await page
+      .locator(".markdown-preview")
+      .evaluateAll((items) => items.map((el) => el.style.zoom)),
+    ["1", "1"],
+  );
+  await cmd("commands.show");
+  await page.keyboard.press("Control+=");
+  assert.equal(
+    (await state()).previewZoom,
+    1,
+    "Palette input keeps its own shortcuts",
+  );
+  await page.keyboard.press("Escape");
+  await cmd("preview.zoom.in");
+  await cmd("markdown.both", { path: file, group });
+  await page.locator(`[data-group="${group}"] .cm-content`).focus();
+  await page.keyboard.press("Control+0");
+  assert.equal(
+    (await state()).previewZoom,
+    1.1,
+    "Source editor owns its keys in split preview mode",
+  );
+  await cmd("terminal.focus");
+  await page.keyboard.press("Control+-");
+  assert.equal(
+    (await state()).previewZoom,
+    1.1,
+    "Terminal focus must not zoom the preview",
+  );
+  await cmd("terminal.toggle", { visible: false });
+  await cmd("markdown.preview", { path: file, group });
+  await cmd("preview.zoom.reset");
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].webContents.getZoomFactor(),
+    ),
+    1,
+  );
   await cmd("preview.find", { group, search: "watchful owl" });
   await until(
     async () => (await cmd("preview.findState", { group })).matches === 4,

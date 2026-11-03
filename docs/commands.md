@@ -42,6 +42,17 @@ terminal, tab, folder, connection, and resize controls now dispatch through the 
 
 ## Interaction boundary
 
+`project.color.set({color?: "#RRGGBB", revision?: string | null})` opens the window-color picker when
+called without a color. Its saturation/brightness square, hue slider, HSB/HEX fields and default palette
+edit a local draft with live title/status-bar preview. Save uses this same command with the revision
+observed when the picker opened; Cancel/Escape discard the draft. No settings writes or SSH requests
+are made by dragging or typing. Explicit color arguments save directly through the same validation and
+conflict checks. `project.color.reset` restores the automatic color; `project.settings.get` reports the
+persisted color (not an unsubmitted preview). The single `peacock.color` setting remains unchanged.
+The square supports arrow keys (Shift for steps of ten); all channels also have numeric inputs.
+`tests/color-picker.cjs` covers synchronization, pointer/keyboard controls, previews, cancellation,
+persistence and stale-save rejection.
+
 Typing, IME composition, cursor movement, text selection, scrolling, hover, drag capture, and unsubmitted form drafts are
 widget interactions, not separate palette entries for each event. CodeMirror owns its native editing/search controls and
 keybindings; palette commands use the same editor operations. xterm input and `terminal.sendText` use the same input path.
@@ -88,6 +99,38 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 
 ## Preview reading and preferences
 
+`file.open({path, group?})` creates a temporary read-only Unsupported file tab for binary/encoding/size-limit failures and
+unreadable PDF/image content. `file.inspect({readOnly:true})` exposes its `unsupported` reason. Explorer reveals and focuses
+the selected file; normal supported-file activation retains the existing focus behavior. Navigation through `file.open`,
+`tab.activate`, `group.focus`, or terminal focus automatically dismisses the temporary tab when it loses its active context.
+The same lifecycle applies to mouse/keyboard navigation; no separate button-only action exists. Unsupported views do not
+poll/re-read their contents, cannot be edited or saved, and are not retained after dismissal.
+
+PDF files open through `file.open({path, group?})`. The viewer controls and command palette share
+`pdf.nextPage`, `pdf.previousPage`, `pdf.page({page, group?})` (1-based; omitted page prompts),
+`pdf.zoomIn`, `pdf.zoomOut`, `pdf.actualSize`, `pdf.fitWidth`, and `pdf.copyPageText`.
+Every PDF command accepts optional `group` (default: focused group). `pdf.state({group?})` returns the current path,
+page/count, zoom (`"fit"` or a scale), render state, error and current-page text. Each split pane has independent controls.
+PDF text selection uses the existing `preview.copy` command and Copy context menu. PageUp/PageDown and Ctrl++/Ctrl+-/Ctrl+0
+work when the PDF page has focus; Ctrl+wheel zooms the hovered PDF pane. These are read-only viewers; text-editing commands are unavailable.
+
+Tab middle-click uses `file.close({path, group})`, preserving unsaved-buffer and terminal-close confirmation.
+Tabs have their own menu. `group.splitRight({group?, path?})` and `group.splitLeft({group?, path?})` split the targeted tab;
+`tab.reveal({group?, path?})` shows its Explorer row, opening the sidebar if needed.
+`tab.closeSaved()` closes all clean document tabs across the window, leaving dirty buffers, in-progress saves and terminal
+tabs open. Copy Path and Copy Relative Path reuse the file commands; filesystem operations remain in the Explorer menu.
+
+`connection.reconnect()` immediately connects or joins the active SSH attempt; it cancels a pending automatic retry timer.
+`connection.disconnect()` stops automatic retries and ends that host's direct shells, including while connecting or waiting
+to retry. Windows on the same host share one retry loop. Transient connection loss uses capped exponential backoff;
+failed writes are never replayed. `workspace.state({readOnly:true}).connectionDetails` exposes `retryDelay` (milliseconds while
+waiting) and `retryAttempt` alongside the existing status/error fields.
+
+Text context menus use `editor.cut`, `editor.copy`, and `editor.paste` with `{group?, path?}` (path guards against a changed tab),
+and `preview.copy({group?, text?})`. Omit arguments to use the active pane's selection. Preview `text` is an optional selection
+snapshot captured before menu focus changes. These commands use the system text clipboard independently of Vim registers.
+Cut/Paste change only the unsaved source buffer and remain undoable. They reject a changed editor while clipboard access is pending.
+
 | Action | Command and arguments |
 | --- | --- |
 | Find literal preview text | `preview.find({group?, search?})`; omitted search focuses/reopens the pane's query; at most 512 characters |
@@ -97,6 +140,10 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 | Edit one setting / remove its override | `settings.update({key, value})`, `settings.reset({key})`; these edit the buffer without saving; omit key to open the UI |
 | Apply preferences | `settings.save`; `file.save({path: "owlet://user/settings.json"})` is equivalent and preserves conflict checks |
 | Inspect effective preferences and schema | `settings.inspect`; returns local disk `path`, effective `values`, and typed `definitions` with defaults/bounds |
+
+`Ctrl++` / `Ctrl+=`, `Ctrl+-` (including numpad plus/minus), and `Ctrl+0` route to these zoom commands when a preview is
+focused or active after a tab/Explorer click. Source editors, terminals and modal inputs retain their own shortcuts.
+Ctrl+wheel inside a preview uses the same shared zoom commands.
 
 Settings JSON can also be edited via `editor.setText` and inspected through `file.inspect`. Unknown keys/comments survive
 individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you

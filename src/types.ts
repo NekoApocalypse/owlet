@@ -11,6 +11,8 @@ export type ConnectionState = {
   target: string;
   home?: string;
   error?: string;
+  retryDelay?: number;
+  retryAttempt?: number;
 };
 export type Entry = {
   name: string;
@@ -28,6 +30,8 @@ export type Document = RemoteFile & {
   saved: string;
   mode: "source" | "preview" | "both";
   image?: string;
+  pdf?: string;
+  unsupported?: string;
   conflict?: RemoteFile;
   missing?: boolean;
   lineEnding?: string;
@@ -131,6 +135,7 @@ export const dirname = (path: string) => {
 };
 export const isMarkdown = (path: string) =>
   /\.(md|markdown|mdown)$/i.test(path);
+export const isPdf = (path: string) => /\.pdf$/i.test(path);
 export const isImage = (path: string) =>
   /\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(path);
 export function resolvePath(base: string, relative: string) {

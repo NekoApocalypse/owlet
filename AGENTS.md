@@ -2,6 +2,12 @@
 
 Owlet is an agent-native reader and editor for inspecting coding agents' work. It is not an IDE. Keep startup fast, remote traffic small, and the interface compact.
 
+## Optional local instructions
+
+If `AGENTS.local.md` exists beside this file, read it for this checkout's local workflow and release preferences.
+If absent, continue normally. Keep that file and `.local/` untracked; do not include them in commits, public documentation,
+release packages, or source archives. Contributors do not need to create either.
+
 ## Commands are a first-class product surface
 
 - Every meaningful user action must have a named command in `window.owletCommands`, discoverable in the command palette. Do not introduce a button-only feature. Keep commands visible for now; unavailable actions may be disabled with accurate state.

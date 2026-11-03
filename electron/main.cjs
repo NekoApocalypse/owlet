@@ -5,6 +5,7 @@ const {
   dialog,
   shell,
   Menu,
+  screen,
 } = require("electron");
 const path = require("node:path");
 const iconPath = path.join(
@@ -15,6 +16,9 @@ const iconPath = path.join(
 const { Connection } = require("./connection.cjs");
 const { LocalConnection } = require("./local.cjs");
 const fs = require("node:fs");
+const relaunchExecutable = require("./launcher.cjs").relaunchExecutable(
+  process.env.OWLET_LAUNCHER,
+);
 app.setName("Owlet");
 app.setAppUserModelId("Owlet.Desktop");
 // The old environment names remain accepted for existing scripts and tests.
@@ -23,9 +27,20 @@ for (const key of ["USER_DATA", "SSH_TARGET", "ROOT", "DEV_URL", "SSH_PROXY"])
     process.env[`LWR_${key}`] = process.env[`OWLET_${key}`];
 if (process.env.LWR_USER_DATA)
   app.setPath("userData", process.env.LWR_USER_DATA);
+const preferencesPath = app.getPath("userData");
+if (relaunchExecutable !== process.execPath) {
+  // Separate Electron's instance lock/cache by build so an older running build
+  // cannot intercept launches of a newly published portable version.
+  const build = require("node:crypto")
+    .createHash("sha256")
+    .update(process.execPath)
+    .digest("hex")
+    .slice(0, 16);
+  app.setPath("userData", path.join(preferencesPath, "build-instances", build));
+}
 const { RecentWorkspaces } = require("./recent.cjs");
 const recent = new RecentWorkspaces(
-  path.join(app.getPath("userData"), "recent-workspaces.json"),
+  path.join(preferencesPath, "recent-workspaces.json"),
 );
 const sessions = new Map();
 const windows = new Map();
@@ -88,16 +103,24 @@ function sendAll(channel, payload) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
 }
 const userSettings = new (require("./settings.cjs").UserSettings)(
-  path.join(app.getPath("userData"), "settings.json"),
+  path.join(preferencesPath, "settings.json"),
 );
 ipcMain.handle("settings-read", () => userSettings.read());
 ipcMain.handle("settings-save", (_, args) => userSettings.save(args));
-function openWindow(root, file, session = sessionFor()) {
+function openWindow(root, file, session = sessionFor(), source) {
+  const previous =
+    source ||
+    BrowserWindow.getFocusedWindow() ||
+    BrowserWindow.fromId([...windows.values()].at(-1)?.windowId || -1);
+  const bounds = previous?.getNormalBounds();
+  const display = bounds
+    ? screen.getDisplayMatching(bounds)
+    : screen.getPrimaryDisplay();
   const win = new BrowserWindow({
-    width: 1440,
-    height: 940,
-    minWidth: 850,
-    minHeight: 600,
+    ...require("./window-placement.cjs").windowPlacement(
+      display.workArea,
+      bounds,
+    ),
     backgroundColor: "#002451",
     icon: iconPath,
     title: "Owlet · Workspace",
@@ -126,7 +149,7 @@ function openWindow(root, file, session = sessionFor()) {
       appId: "Owlet.Desktop",
       appIconPath: iconPath,
       relaunchDisplayName: "Owlet",
-      relaunchCommand: `"${process.execPath}"`,
+      relaunchCommand: `"${relaunchExecutable}"`,
     });
   win.on("page-title-updated", (event) => event.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -159,6 +182,11 @@ function openWindow(root, file, session = sessionFor()) {
         session.notify("terminal-close", { terminal });
         terminals.delete(terminal);
       }
+    if (
+      session.kind === "ssh" &&
+      ![...windows.values()].some((record) => record.session === session)
+    )
+      session.close();
   });
   if (process.env.LWR_DEV_URL) win.loadURL(process.env.LWR_DEV_URL);
   else win.loadFile(path.join(__dirname, "../dist/index.html"));
@@ -192,6 +220,7 @@ const methods = new Set([
   "stat",
   "stats",
   "image",
+  "pdf",
   "project-settings",
   "project-color",
   "import-peacock",
@@ -207,6 +236,7 @@ ipcMain.handle("remote", async (event, method, args) => {
       root: windows.get(event.sender.id).root || connection.state.home,
     };
   if (method === "read") return connection.download(args);
+  if (method === "pdf") return connection.download(args, false, true);
   if (method === "image") {
     const key = JSON.stringify([connection.kind, connection.target, args]);
     const existing = imageCache.get(key);
@@ -332,7 +362,12 @@ ipcMain.handle("recent-open", async (event, id) => {
     openWindow(info.path, undefined, session);
   } else {
     void session.connect().catch(() => {});
-    openWindow(entry.path, undefined, session);
+    openWindow(
+      entry.path,
+      undefined,
+      session,
+      BrowserWindow.fromWebContents(event.sender),
+    );
   }
 });
 ipcMain.handle("file-menu", (event) => {

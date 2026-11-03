@@ -7,7 +7,7 @@ const base = fs.mkdtempSync(path.join(workspace, "artifacts/highlighting-"));
 const root = path.join(base, "Syntax review");
 fs.mkdirSync(root);
 const markdown =
-  '# A clearer view\n\n**Bold** and *italic* with `inline()` code.\n\n[Read the guide](https://example.com)\n\n- A compact list\n\n> A useful observation\n\n~~Old text~~\n\n```TypeScript title=example\nconst greeting: string = "hello"; // comment\n```\n';
+  '# A clearer view\n\n**Bold** and *italic* with `inline()` code.\n\n***Combined*** and ~~**Retired**~~\n\n__Underscore bold__ and _underscore italic_\n\n[Read the guide](https://example.com)\n\n- A compact list\n\n> A useful observation\n\n~~Old text~~\n\n`**literal** *literal* ~~literal~~`\n\n```TypeScript title=example\nconst greeting: string = "hello"; // comment\n```\n';
 const fixtures = {
   "Reading.md": markdown,
   "UPPER.MD": markdown,
@@ -76,6 +76,34 @@ const errors = [],
     const spans = lines.flatMap((l) => l.spans);
     if (["Reading.md", "UPPER.MD", "Notes.mdown"].includes(name)) {
       const line = (text) => lines.find((l) => l.text.includes(text));
+      const styledText = (text) => {
+        const match = line(text)?.spans.find((s) => s.text.includes(text));
+        assert(
+          match,
+          `${name}: style the enclosed text '${text}', not just its delimiters`,
+        );
+        assert.notEqual(
+          match.color,
+          line(text).base,
+          `${name}: '${text}' needs a visible token color`,
+        );
+        return match;
+      };
+      assert(Number(styledText("Bold").weight) >= 700);
+      assert.equal(styledText("italic").style, "italic");
+      assert(Number(styledText("Underscore bold").weight) >= 700);
+      assert.equal(styledText("underscore italic").style, "italic");
+      assert(Number(styledText("Combined").weight) >= 700);
+      assert.equal(styledText("Combined").style, "italic");
+      assert(Number(styledText("Retired").weight) >= 700);
+      assert(styledText("Retired").decoration.includes("line-through"));
+      assert(styledText("Old text").decoration.includes("line-through"));
+      const literal = line("**literal**").spans.find((s) =>
+        s.text.includes("**literal**"),
+      );
+      assert(literal);
+      assert(Number(literal.weight) < 700 && literal.style === "normal");
+      assert(!literal.decoration.includes("line-through"));
       assert(line("A clearer").spans.some((s) => Number(s.weight) >= 700));
       assert(
         line("inline()").spans.some(

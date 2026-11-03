@@ -2,5 +2,7 @@ node_modules/
 dist/
 artifacts/
 release/
+AGENTS.local.md
+.local/
 *.log
 !docs/evidence/*.log

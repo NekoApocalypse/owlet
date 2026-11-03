@@ -1,0 +1,101 @@
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.pdf-toolbar {
+  height: var(--bar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-8);
+  background: #001b3e;
+  font-size: 12px;
+  overflow-x: auto;
+}
+.pdf-toolbar button {
+  height: var(--control-height);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-4);
+  flex-shrink: 0;
+}
+.pdf-toolbar form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.pdf-toolbar input {
+  width: 40px;
+  height: 22px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: inherit;
+  background: #002451;
+}
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-16);
+  background: #001126;
+}
+.pdf-page {
+  position: relative;
+  margin: 0 auto;
+  background: white;
+  color: black;
+  color-scheme: light;
+}
+.pdf-page canvas {
+  display: block;
+}
+.pdf-error {
+  padding: var(--space-12);
+  color: #ffcfaa;
+  font-size: 12px;
+}
+/* PDF.js text positioning rules (Apache-2.0); scoped to Owlet's PDF surface. */
+.pdf-page .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdf-page .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.pdf-page .textLayer > :not(.markedContent),
+.pdf-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+    scale(var(--min-font-size-inv));
+}
+.pdf-page .textLayer .markedContent {
+  display: contents;
+}
+.pdf-page .textLayer ::selection {
+  background: #3287df66;
+}

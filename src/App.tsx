@@ -34,14 +34,22 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
-import Editor, { editorAction, vimCommand } from "./Editor";
+import Editor, {
+  editorAction,
+  vimCommand,
+  sourceView,
+  sourceClipboard,
+} from "./Editor";
 import CommandPalette, { useCommands } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import Welcome from "./Welcome";
+import TabStrip from "./TabStrip";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { pdfCommand, type PdfAction } from "./pdfCommands";
+import { unsupportedReason } from "./unsupported";
 import {
   SETTINGS_PATH,
   defaults,
@@ -60,6 +68,7 @@ import {
   basename,
   dirname,
   isImage,
+  isPdf,
   isMarkdown,
   resolvePath,
   type ConnectionState,
@@ -76,6 +85,7 @@ import {
   resizeSplit,
 } from "./layout";
 const Preview = lazy(() => import("./Preview"));
+const PdfViewer = lazy(() => import("./PdfViewer"));
 const TerminalPane = lazy(() => import("./TerminalPane"));
 const owletLogo = new URL("../assets/icon.png", import.meta.url).href;
 let nextGroup = 2,
@@ -163,9 +173,11 @@ function SourcePreview({
 function ImageViewer({
   document,
   onCommand,
+  onUnavailable,
 }: {
   document: Document;
   onCommand(id: string, args?: Record<string, unknown>): void;
+  onUnavailable(reason: string): void;
 }) {
   const [zoom, setZoom] = useState<number | null>(null);
   useEffect(() => {
@@ -207,6 +219,11 @@ function ImageViewer({
         <img
           alt={basename(document.path)}
           src={document.image}
+          onError={() =>
+            onUnavailable(
+              "This image format or file content could not be decoded.",
+            )
+          }
           style={
             zoom
               ? { maxWidth: "none", maxHeight: "none", zoom }
@@ -230,6 +247,14 @@ export default function App() {
     kind: "local",
   });
   const [root, setRoot] = useState("");
+  const [textMenu, setTextMenu] = useState<{
+    x: number;
+    y: number;
+    group: number;
+    path: string;
+    kind: "editor" | "preview";
+    text: string;
+  } | null>(null);
   const [documents, setDocuments] = useState<Record<string, Document>>({});
   const [viewModes, setViewModes] = useState<Record<string, Document["mode"]>>(
     {},
@@ -250,6 +275,11 @@ export default function App() {
   const [activeGroup, setActiveGroup] = useState(1);
   const [sidebar, setSidebar] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(252);
+  const sidebarResize = useRef<{
+    pointer: number;
+    x: number;
+    width: number;
+  } | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>(
@@ -266,6 +296,7 @@ export default function App() {
   );
   const legacyVim = useRef(vimMode);
   const [refresh, setRefresh] = useState(0);
+  const [explorerActivation, setExplorerActivation] = useState(0);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [indexRevision, setIndexRevision] = useState(0);
@@ -313,6 +344,7 @@ export default function App() {
     layoutRef = useRef(layout),
     groupRef = useRef(activeGroup),
     connectionRef = useRef(connection);
+  const initialRoot = useRef<string | undefined>(undefined);
   docsRef.current = documents;
   layoutRef.current = layout;
   groupRef.current = activeGroup;
@@ -371,6 +403,7 @@ export default function App() {
       return next;
     });
   function activate(path: string, group = groupRef.current) {
+    setExplorerActivation((value) => value + 1);
     if (terminalsRef.current.some((item) => item.id === path))
       setActiveTerminal(path);
     setLayout((previous) =>
@@ -423,6 +456,7 @@ export default function App() {
   async function openFile(path: string, group = groupRef.current) {
     if (path === SETTINGS_PATH) return openSettings("preview", group);
     if (docsRef.current[path]) {
+      if (docsRef.current[path].unsupported) setSidebar(true);
       activate(path, group);
       return;
     }
@@ -432,7 +466,22 @@ export default function App() {
         markBusy(path, true);
         try {
           let document: Document;
-          if (isImage(path)) {
+          if (isPdf(path)) {
+            const result = await window.lwr.remote<{
+              path: string;
+              data: string;
+              stamp: string;
+            }>("pdf", { path });
+            document = {
+              path: result.path,
+              pdf: result.data,
+              stamp: result.stamp,
+              text: "",
+              saved: "",
+              revision: "",
+              mode: "preview",
+            };
+          } else if (isImage(path)) {
             const result = await window.lwr.remote<{
               url: string;
               stamp: string;
@@ -463,9 +512,19 @@ export default function App() {
                 : "source",
             };
           }
-          setDocuments((previous) => ({ ...previous, [path]: document }));
           return document;
         } catch (error) {
+          const reason = unsupportedReason(error);
+          if (reason)
+            return {
+              path,
+              text: "",
+              saved: "",
+              revision: "",
+              stamp: "",
+              mode: "preview",
+              unsupported: reason,
+            } as Document;
           report(error);
           return undefined;
         } finally {
@@ -475,7 +534,76 @@ export default function App() {
       })();
       opening.current.set(path, pending);
     }
-    if (await pending) activate(path, group);
+    const document = await pending;
+    if (document) {
+      setDocuments((previous) => ({ ...previous, [path]: document }));
+      if (document.unsupported) setSidebar(true);
+      activate(path, group);
+    }
+  }
+  function dismissUnsupported(keepFocused = false) {
+    let next = layoutRef.current;
+    const removed = new Set<string>();
+    for (const group of groups(next)) {
+      const tabs = group.tabs.filter((path) => {
+        const remove =
+          !!docsRef.current[path]?.unsupported &&
+          !(
+            keepFocused &&
+            group.id === groupRef.current &&
+            group.active === path
+          );
+        if (remove) removed.add(path);
+        return !remove;
+      });
+      if (tabs.length !== group.tabs.length) {
+        next = mapGroup(next, group.id, (g) => ({
+          ...g,
+          tabs,
+          active: g.active && tabs.includes(g.active) ? g.active : tabs.at(-1),
+        }));
+        if (!tabs.length && groups(next).length > 1)
+          next = removeGroup(next, group.id)!;
+      }
+    }
+    if (!removed.size) return;
+    layoutRef.current = next;
+    setLayout(next);
+    if (!groups(next).some((g) => g.id === groupRef.current))
+      setActiveGroup(groups(next)[0].id);
+    const retained = new Set(groups(next).flatMap((g) => g.tabs));
+    setDocuments((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(
+          ([path]) => !removed.has(path) || retained.has(path),
+        ),
+      ),
+    );
+  }
+  useEffect(() => {
+    dismissUnsupported(true);
+  }, [layout, activeGroup, documents]);
+  function unsupportedPreview(source: Document, reason: string) {
+    const current = docsRef.current[source.path];
+    if (
+      !current ||
+      current.pdf !== source.pdf ||
+      current.image !== source.image ||
+      current.text !== current.saved
+    )
+      return;
+    patch(source.path, {
+      unsupported: reason,
+      pdf: undefined,
+      image: undefined,
+    });
+    if (
+      groups(layoutRef.current).find((g) => g.id === groupRef.current)
+        ?.active === source.path
+    ) {
+      setSidebar(true);
+      setExplorerActivation((value) => value + 1);
+    }
   }
   const beneath = (path: string, parent: string) =>
     path === parent || path.startsWith(parent.replace(/\/$/, "") + "/");
@@ -698,7 +826,7 @@ export default function App() {
     replacementRevision?: string,
   ): Promise<boolean> {
     const doc = docsRef.current[path];
-    if (!doc || doc.image) return false;
+    if (!doc || doc.image || doc.pdf || doc.unsupported) return false;
     if (doc.text === doc.saved && !replacementRevision) return true;
     if (saving.current.has(path)) return false;
     saving.current.add(path);
@@ -752,7 +880,8 @@ export default function App() {
     if (typeof discard !== "boolean")
       throw new Error("discard must be true or false.");
     const before = docsRef.current[path];
-    if (!before || before.image) throw new Error("Open a text file first.");
+    if (!before || before.image || before.pdf || before.unsupported)
+      throw new Error("Open a text file first.");
     if (before.text !== before.saved && !discard)
       throw new Error(
         "Unsaved changes. Save first, or use :e! to discard and reload.",
@@ -862,7 +991,7 @@ export default function App() {
       });
     } else performClose(path, groupId);
   }
-  function splitGroup(group: Group, axis: "row" | "column") {
+  function splitGroup(group: Group, axis: "row" | "column", before = false) {
     const id = nextGroup++;
     const terminal = terminalsRef.current.some(
       (item) => item.id === group.active,
@@ -875,8 +1004,8 @@ export default function App() {
           documents[group.active!]?.mode ||
           "source",
       }));
-    setLayout((previous) =>
-      replaceGroup(previous, group.id, {
+    setLayout((previous) => {
+      const split: Layout = {
         kind: "split",
         id: nextSplit++,
         axis,
@@ -899,8 +1028,10 @@ export default function App() {
             active: group.active,
           },
         },
-      }),
-    );
+      };
+      if (before) [split.first, split.second] = [split.second, split.first];
+      return replaceGroup(previous, group.id, split);
+    });
     setActiveGroup(id);
   }
   function moveTab(path: string, source: number, destination: number) {
@@ -1358,8 +1489,13 @@ export default function App() {
       },
       {
         id: "connection.disconnect",
-        title: "Connection: Disconnect SSH (Ends Direct Shells)",
-        enabled: !local && connected,
+        title:
+          "Connection: Disconnect SSH / Stop Reconnecting (Ends Direct Shells)",
+        enabled:
+          !local &&
+          (connected ||
+            connection.status === "connecting" ||
+            !!connection.retryDelay),
         run: () => window.lwr.disconnect(),
       },
       {
@@ -1740,6 +1876,8 @@ export default function App() {
         enabled:
           !!current &&
           !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         run: (args) => saveFile(args.path || current!.path),
       },
@@ -1771,6 +1909,8 @@ export default function App() {
         enabled:
           !!current &&
           !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         parameters: {
           path: "Optional open file path",
@@ -1786,6 +1926,8 @@ export default function App() {
         enabled:
           !!current &&
           !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
           (connected || current.path === SETTINGS_PATH),
         run: () =>
           setPrompt({
@@ -1866,7 +2008,12 @@ export default function App() {
         id: "editor.vimCommand",
         title: "Vim: Run Ex Command…",
         enabled:
-          !!current && !current.image && vimMode && current.mode !== "preview",
+          !!current &&
+          !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
+          vimMode &&
+          current.mode !== "preview",
         parameters: {
           command:
             "One Ex command, e.g. e!, w, %s/old/new/g; omit for a prompt",
@@ -1982,6 +2129,8 @@ export default function App() {
             revision: doc.revision,
             dirty: doc.text !== doc.saved,
             image: !!doc.image,
+            pdf: !!doc.pdf,
+            unsupported: doc.unsupported,
             conflict: doc.conflict,
           };
           if (!args.readOnly)
@@ -1992,14 +2141,16 @@ export default function App() {
       {
         id: "editor.setText",
         title: "Editor: Replace Buffer Text…",
-        enabled: !!current && !current.image,
+        enabled:
+          !!current && !current.image && !current.pdf && !current.unsupported,
         parameters: {
           path: "Optional open file path",
           text: "New unsaved buffer text; omit for a multiline editor",
         },
         run: (args) => {
           const doc = documents[args.path || current!.path];
-          if (!doc || doc.image) throw new Error("Choose an open text file");
+          if (!doc || doc.image || doc.pdf || doc.unsupported)
+            throw new Error("Choose an open text file");
           const apply = (text: string) => {
             if (typeof text !== "string")
               throw new Error("Text must be a string");
@@ -2153,7 +2304,8 @@ export default function App() {
       ).map((action) => ({
         id: `editor.${action}`,
         title: `Editor: ${{ find: "Find in File", findNext: "Find Next", findPrevious: "Find Previous", replaceNext: "Replace Next Match", replaceAll: "Replace All Matches", closeFind: "Close Find", undo: "Undo", redo: "Redo", selectAll: "Select All", focus: "Focus Source Editor" }[action]}`,
-        enabled: !!current && !current.image,
+        enabled:
+          !!current && !current.image && !current.pdf && !current.unsupported,
         parameters: {
           search: "Optional search string",
           replace: "Optional replacement",
@@ -2174,6 +2326,59 @@ export default function App() {
           );
         },
       })),
+      ...(["cut", "copy", "paste"] as const).map((action) => ({
+        id: `editor.${action}`,
+        title: `Editor: ${action[0].toUpperCase() + action.slice(1)} Text`,
+        enabled: groups(layout).some((group) => {
+          const doc = documents[group.active || ""];
+          return (
+            doc &&
+            !doc.image &&
+            !doc.pdf &&
+            !doc.unsupported &&
+            (viewModes[`${group.id}:${doc.path}`] || doc.mode) !== "preview"
+          );
+        }),
+        parameters: {
+          group: "Optional group ID",
+          path: "Optional expected active file path",
+        },
+        run: (args: Record<string, any>) => {
+          const group = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          if (!group || (args.path && group.active !== args.path))
+            throw new Error("The target tab has changed");
+          return sourceClipboard(
+            action,
+            document.querySelector(`[data-group="${group.id}"] .cm-editor`),
+          );
+        },
+      })),
+      {
+        id: "preview.copy",
+        title: "Preview: Copy Selected Text",
+        parameters: {
+          group: "Optional group ID",
+          text: "Optional selection captured before opening a menu",
+        },
+        run: (args: Record<string, any>) => {
+          const pane = document.querySelector(
+            `[data-group="${args.group ?? groupRef.current}"] .markdown-preview, [data-group="${args.group ?? groupRef.current}"] .pdf-page`,
+          );
+          const selection = window.getSelection();
+          const text =
+            args.text ??
+            (pane &&
+            selection?.anchorNode &&
+            selection.focusNode &&
+            pane.contains(selection.anchorNode) &&
+            pane.contains(selection.focusNode)
+              ? selection.toString()
+              : "");
+          return text ? navigator.clipboard.writeText(text) : false;
+        },
+      },
       ...(["source", "preview", "both"] as const).map((mode) => ({
         id: `markdown.${mode}`,
         title: `Markdown: ${{ source: "Show Raw Source", preview: "Show Preview", both: "Show Source and Preview" }[mode]}`,
@@ -2191,17 +2396,89 @@ export default function App() {
             current!.mode === "preview" ? "source" : "preview",
           ),
       },
-      {
-        id: "group.splitRight",
-        title: "Group: Split Right",
-        shortcut: "Ctrl+\\",
-        run: (args) =>
+      ...(["Right", "Left"] as const).map((side) => ({
+        id: `group.split${side}`,
+        title: `Group: Split ${side}`,
+        shortcut: side === "Right" ? "Ctrl+\\" : undefined,
+        parameters: {
+          group: "Optional source group ID",
+          path: "Optional tab in that group; default active tab",
+        },
+        run: (args: Record<string, any>) => {
+          const source = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          if (!source || (args.path && !source.tabs.includes(args.path)))
+            throw new Error("Choose a tab in this group");
           splitGroup(
-            groups(layoutRef.current).find(
-              (group) => group.id === args.group,
-            ) || currentGroup,
+            args.path ? { ...source, active: args.path } : source,
             "row",
-          ),
+            side === "Left",
+          );
+        },
+      })),
+      {
+        id: "tab.reveal",
+        title: "Tab: Show in Explorer",
+        parameters: {
+          group: "Optional group ID",
+          path: "Optional open file path",
+        },
+        run: (args) => {
+          const target = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          const path = args.path ?? target?.active;
+          if (
+            !target ||
+            !path ||
+            !target.tabs.includes(path) ||
+            path === SETTINGS_PATH ||
+            !beneath(path, root) ||
+            !docsRef.current[path]
+          )
+            throw new Error("Choose an open file inside this workspace");
+          setSidebar(true);
+          activate(path, target.id);
+        },
+      },
+      {
+        id: "tab.closeSaved",
+        title: "Tab: Close All Saved Tabs",
+        run: () => {
+          const close = new Set(
+            Object.values(docsRef.current)
+              .filter(
+                (doc) =>
+                  doc.text === doc.saved && !saving.current.has(doc.path),
+              )
+              .map((doc) => doc.path),
+          );
+          let next = groups(layoutRef.current).reduce(
+            (layout, group) =>
+              mapGroup(layout, group.id, (g) => {
+                const tabs = g.tabs.filter((path) => !close.has(path));
+                return {
+                  ...g,
+                  tabs,
+                  active:
+                    g.active && tabs.includes(g.active) ? g.active : tabs[0],
+                };
+              }),
+            layoutRef.current,
+          );
+          for (const group of groups(next))
+            if (!group.tabs.length && groups(next).length > 1)
+              next = removeGroup(next, group.id)!;
+          setLayout(next);
+          if (!groups(next).some((g) => g.id === groupRef.current))
+            setActiveGroup(groups(next)[0].id);
+          setDocuments((previous) =>
+            Object.fromEntries(
+              Object.entries(previous).filter(([path]) => !close.has(path)),
+            ),
+          );
+        },
       },
       {
         id: "group.splitDown",
@@ -2236,6 +2513,7 @@ export default function App() {
             if (!groups(layoutRef.current).some((item) => item.id === group))
               throw new Error("Unknown group ID");
             setActiveGroup(group);
+            setExplorerActivation((value) => value + 1);
           };
           return args.group === undefined
             ? setPathPrompt({
@@ -2385,6 +2663,7 @@ export default function App() {
           const summary = {
             root,
             connection: connection.status,
+            connectionDetails: connection,
             vimMode,
             fileClipboard,
             layout,
@@ -2730,6 +3009,40 @@ export default function App() {
         title: "Terminal: Decrease Height",
         run: () => setTerminalHeight((value) => Math.max(100, value - 50)),
       },
+      ...(
+        [
+          "nextPage",
+          "previousPage",
+          "page",
+          "zoomIn",
+          "zoomOut",
+          "fitWidth",
+          "actualSize",
+          "copyPageText",
+          "state",
+        ] as PdfAction[]
+      ).map((action) => ({
+        id: `pdf.${action}`,
+        title: `PDF: ${{ nextPage: "Next Page", previousPage: "Previous Page", page: "Go to Page…", zoomIn: "Zoom In", zoomOut: "Zoom Out", fitWidth: "Fit to Width", actualSize: "Actual Size", copyPageText: "Copy Page Text", state: "Inspect Viewer State" }[action]}`,
+        enabled: groups(layout).some((g) => !!documents[g.active || ""]?.pdf),
+        parameters: {
+          group: "Optional group ID (default: active group)",
+          ...(action === "page"
+            ? { page: "1-based page number; omitted opens a prompt" }
+            : {}),
+        },
+        run: (args: Record<string, any>) => {
+          const target = args.group ?? groupRef.current;
+          if (action === "page" && args.page === undefined)
+            return setPathPrompt({
+              title: "Go to PDF page",
+              value: "1",
+              action: (value) =>
+                pdfCommand(target, action, { page: Number(value) }),
+            });
+          return pdfCommand(target, action, args);
+        },
+      })),
       {
         id: "image.fit",
         title: "Image: Fit to View",
@@ -2784,10 +3097,18 @@ export default function App() {
           items.map((item) => ({ ...item, status: "disconnected" })),
         );
       setConnection(state);
-      if (state.error) report(state.error);
+      if (state.status === "connected") {
+        if (state.kind === "ssh" && initialRoot.current === undefined)
+          setRoot((current) => current || state.home || "/");
+        setRefresh((value) => value + 1);
+      }
+      if (state.error && !state.retryDelay) report(state.error);
     });
     window.lwr.bootstrap().then(async (config) => {
+      initialRoot.current = config.root;
       setConnection(config.connection);
+      // Retain the requested workspace even when the initial SSH attempt fails.
+      if (config.root !== undefined) setRoot(config.root);
       try {
         let preferences = await window.lwr.readSettings();
         if (preferences.revision === "missing" && legacyVim.current)
@@ -2858,6 +3179,47 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("lwr-vim", String(vimMode));
   }, [vimMode]);
+  useEffect(() => {
+    const previewZoomShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey
+      )
+        return;
+      const direction =
+        ["+", "="].includes(event.key) || event.code === "NumpadAdd"
+          ? "in"
+          : event.key === "-" || event.code === "NumpadSubtract"
+            ? "out"
+            : event.key === "0" || event.code === "Numpad0"
+              ? "reset"
+              : null;
+      if (
+        !direction ||
+        document.querySelector(".diagram-viewer, .palette-shade, .modal-shade")
+      )
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const pane = target?.closest<HTMLElement>("[data-preview-group]");
+      // Tab/Explorer clicks can leave focus outside the active preview. Source
+      // editors, terminals and other inputs still own their keyboard shortcuts.
+      if (
+        !pane &&
+        (target?.closest(
+          ".cm-editor, .terminal-host, input, textarea, [contenteditable]",
+        ) ||
+          !document.querySelector(`[data-preview-group="${groupRef.current}"]`))
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      execute(`preview.zoom.${direction}`);
+    };
+    window.addEventListener("keydown", previewZoomShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", previewZoomShortcut, true);
+  }, [commandApi]);
   useEffect(() => {
     const quickOpenShortcut = (event: KeyboardEvent) => {
       if (
@@ -2943,7 +3305,10 @@ export default function App() {
             .map((group) => group.active)
             .filter(
               (path): path is string =>
-                !!path && path !== SETTINGS_PATH && !!docsRef.current[path],
+                !!path &&
+                path !== SETTINGS_PATH &&
+                !!docsRef.current[path] &&
+                !docsRef.current[path].unsupported,
             ),
         ),
       ];
@@ -2961,7 +3326,18 @@ export default function App() {
             continue;
           }
           if (stat.stamp === doc.stamp) continue;
-          if (doc.image) {
+          if (doc.pdf) {
+            const result = await window.lwr.remote<{
+              data: string;
+              stamp: string;
+            }>("pdf", { path: stat.path });
+            if (!cancelled)
+              patch(stat.path, {
+                pdf: result.data,
+                stamp: result.stamp,
+                missing: false,
+              });
+          } else if (doc.image) {
             const result = await window.lwr.remote<{
               url: string;
               stamp: string;
@@ -3055,7 +3431,9 @@ export default function App() {
             <span>
               {connected
                 ? "Your old shell ended when SSH disconnected."
-                : "SSH disconnected. Reconnect to continue."}
+                : connection.retryDelay || connection.status === "connecting"
+                  ? "SSH disconnected. Reconnecting automatically…"
+                  : "SSH disconnected. Reconnect to continue."}
             </span>
             {connected && (
               <button
@@ -3080,6 +3458,39 @@ export default function App() {
       <section
         className={`editor-group ${activeGroup === group.id ? "active-group" : ""}`}
         data-group={group.id}
+        onContextMenuCapture={(event) => {
+          const target = event.target as HTMLElement;
+          const editor = target.closest<HTMLElement>(".cm-content");
+          const preview = target.closest<HTMLElement>(
+            ".markdown-preview, .pdf-page",
+          );
+          if ((!editor && !preview) || !doc) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const view = sourceView(editor);
+          const selection = window.getSelection();
+          const text = view
+            ? view.state.sliceDoc(
+                view.state.selection.main.from,
+                view.state.selection.main.to,
+              )
+            : preview &&
+                selection?.anchorNode &&
+                selection.focusNode &&
+                preview.contains(selection.anchorNode) &&
+                preview.contains(selection.focusNode)
+              ? selection.toString()
+              : "";
+          setFileMenu(null);
+          setTextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            group: group.id,
+            path: doc.path,
+            kind: editor ? "editor" : "preview",
+            text,
+          });
+        }}
         onPointerDown={() => execute("group.focus", { group: group.id })}
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -3110,7 +3521,7 @@ export default function App() {
         }}
       >
         <div className="tabs-bar">
-          <div className="tabs" role="tablist">
+          <TabStrip active={group.active}>
             {group.tabs.map((path) => {
               const terminalTab = terminalSessions.find(
                 (item) => item.id === path,
@@ -3125,18 +3536,32 @@ export default function App() {
                   key={path}
                   className={`tab ${group.active === path ? "active-tab" : ""}`}
                   role="tab"
+                  aria-label={
+                    item?.unsupported
+                      ? `${label} — Unsupported file`
+                      : undefined
+                  }
                   aria-selected={group.active === path}
                   draggable
+                  onMouseDown={(event) => {
+                    if (event.button === 1) event.preventDefault();
+                  }}
+                  onAuxClick={(event) => {
+                    if (event.button !== 1) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    execute("file.close", { path, group: group.id });
+                  }}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    if (!terminalTab)
-                      setFileMenu({
-                        path,
-                        directory: false,
-                        x: event.clientX,
-                        y: event.clientY,
-                        group: group.id,
-                      });
+                    setTextMenu(null);
+                    setFileMenu({
+                      path,
+                      directory: false,
+                      x: event.clientX,
+                      y: event.clientY,
+                      group: group.id,
+                    });
                   }}
                   title={
                     terminalTab ? `${label} · ${terminalTab.status}` : path
@@ -3152,7 +3577,9 @@ export default function App() {
                     execute("tab.activate", { path, group: group.id })
                   }
                 >
-                  {terminalTab ? (
+                  {item?.unsupported ? (
+                    <AlertTriangle size={15} />
+                  ) : terminalTab ? (
                     <TerminalSquare size={15} />
                   ) : path === SETTINGS_PATH ? (
                     <SettingsIcon size={15} />
@@ -3181,7 +3608,7 @@ export default function App() {
                 </div>
               );
             })}
-          </div>
+          </TabStrip>
           <div className="group-actions">
             <button
               title="Split right"
@@ -3285,7 +3712,7 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                {isMarkdown(doc.path) && (
+                {!doc.unsupported && isMarkdown(doc.path) && (
                   <div className="mode-switch">
                     {(["source", "preview", "both"] as const).map((mode) => (
                       <button
@@ -3324,7 +3751,7 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                {!doc.image && (
+                {!doc.image && !doc.pdf && !doc.unsupported && (
                   <button
                     title="Save (Ctrl+S)"
                     aria-label="Save file"
@@ -3358,7 +3785,19 @@ export default function App() {
               </div>
             )}
             <div className="document-body">
-              {doc.path === SETTINGS_PATH && doc.mode !== "source" ? (
+              {doc.unsupported ? (
+                <div className="unsupported-file" role="status">
+                  <AlertTriangle size={28} />
+                  <h2>Unsupported file</h2>
+                  <p>
+                    Owlet cannot display <strong>{basename(doc.path)}</strong>.
+                  </p>
+                  <p>{doc.unsupported}</p>
+                  <p className="unsupported-hint">
+                    This temporary tab closes when you switch away.
+                  </p>
+                </div>
+              ) : doc.path === SETTINGS_PATH && doc.mode !== "source" ? (
                 <SettingsView
                   text={doc.text}
                   file={settingsFile}
@@ -3366,8 +3805,24 @@ export default function App() {
                     execute(id, { ...args, group: group.id })
                   }
                 />
+              ) : doc.pdf ? (
+                <Suspense
+                  fallback={<div className="loading">Preparing PDF…</div>}
+                >
+                  <PdfViewer
+                    data={doc.pdf}
+                    path={doc.path}
+                    group={group.id}
+                    onCommand={execute}
+                    onUnavailable={(reason) => unsupportedPreview(doc, reason)}
+                  />
+                </Suspense>
               ) : doc.image ? (
-                <ImageViewer document={doc} onCommand={execute} />
+                <ImageViewer
+                  document={doc}
+                  onCommand={execute}
+                  onUnavailable={(reason) => unsupportedPreview(doc, reason)}
+                />
               ) : doc.mode === "both" && isMarkdown(doc.path) ? (
                 <SourcePreview
                   ratio={previewRatios[`${group.id}:${doc.path}`] ?? 0.5}
@@ -3487,6 +3942,7 @@ export default function App() {
             recent={recent}
             workspaceReady={connected && !!root}
             hasWorkspace={!!root}
+            connection={connection}
             execute={execute}
           />
         )}
@@ -3514,6 +3970,35 @@ export default function App() {
           directory = fileMenu.directory ? path : dirname(path);
         const workspaceItem =
           !!root && beneath(path, root) && path !== SETTINGS_PATH;
+        if (fileMenu.group !== undefined) {
+          const args = { path, group: fileMenu.group },
+            file = !!documents[path];
+          return [
+            {
+              label: "Copy Path",
+              id: "file.copyPath",
+              args: { path },
+              disabled: !file,
+            },
+            {
+              label: "Copy Relative Path",
+              id: "file.copyRelativePath",
+              args: { path },
+              disabled: !file || !workspaceItem,
+            },
+            null,
+            { label: "Split Right", id: "group.splitRight", args },
+            { label: "Split Left", id: "group.splitLeft", args },
+            {
+              label: "Show in Explorer",
+              id: "tab.reveal",
+              args,
+              disabled: !file || !workspaceItem,
+            },
+            null,
+            { label: "Close All Saved Tabs", id: "tab.closeSaved" },
+          ];
+        }
         const items: MenuItem[] = [
           {
             label: "New File…",
@@ -3701,9 +4186,36 @@ export default function App() {
         <ContextMenu
           x={fileMenu.x}
           y={fileMenu.y}
+          label={fileMenu.group !== undefined ? "Tab actions" : "File actions"}
           items={contextItems}
           onCommand={execute}
           onClose={() => setFileMenu(null)}
+        />
+      )}
+      {textMenu && (
+        <ContextMenu
+          x={textMenu.x}
+          y={textMenu.y}
+          label="Text actions"
+          items={
+            textMenu.kind === "editor"
+              ? ["cut", "copy", "paste"].map((action) => ({
+                  id: `editor.${action}`,
+                  label: action[0].toUpperCase() + action.slice(1),
+                  args: { group: textMenu.group, path: textMenu.path },
+                  disabled: action !== "paste" && !textMenu.text,
+                }))
+              : [
+                  {
+                    id: "preview.copy",
+                    label: "Copy",
+                    args: { group: textMenu.group, text: textMenu.text },
+                    disabled: !textMenu.text,
+                  },
+                ]
+          }
+          onCommand={execute}
+          onClose={() => setTextMenu(null)}
         />
       )}
       <main className="workspace">
@@ -3723,6 +4235,11 @@ export default function App() {
                 }
                 root={root}
                 selected={current?.path}
+                activation={explorerActivation}
+                focusSelected={!!current?.unsupported}
+                visible={sidebar}
+                caseInsensitive={local}
+                connection={connection}
                 revision={refresh}
                 onOpen={(path) => execute("file.open", { path })}
                 onFolder={() => execute("window.openFolder")}
@@ -3736,16 +4253,34 @@ export default function App() {
               style={{ display: sidebar ? undefined : "none" }}
               role="separator"
               aria-label="Resize Explorer"
-              onPointerDown={(event) =>
-                event.currentTarget.setPointerCapture(event.pointerId)
-              }
-              onPointerMove={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  execute("explorer.setWidth", { width: event.clientX });
+              aria-orientation="vertical"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                sidebarResize.current = {
+                  pointer: event.pointerId,
+                  x: event.clientX,
+                  width: sidebarWidth,
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
               }}
-              onPointerUp={(event) =>
-                event.currentTarget.releasePointerCapture(event.pointerId)
-              }
+              onPointerMove={(event) => {
+                const drag = sidebarResize.current;
+                if (
+                  drag?.pointer === event.pointerId &&
+                  event.currentTarget.hasPointerCapture(event.pointerId)
+                )
+                  execute("explorer.setWidth", {
+                    width: drag.width + event.clientX - drag.x,
+                  });
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId))
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onLostPointerCapture={() => {
+                sidebarResize.current = null;
+              }}
             />
           </>
         }
@@ -3945,7 +4480,10 @@ export default function App() {
             restart={item.restart}
             destination={"terminal-slot-" + item.id}
             onError={report}
-            onFocus={() => setActiveTerminal(item.id)}
+            onFocus={() => {
+              setActiveTerminal(item.id);
+              dismissUnsupported();
+            }}
             onStatus={(status, pty) => updateTerminal(item.id, { status, pty })}
           />
         ))}
@@ -4003,7 +4541,7 @@ export default function App() {
           </button>
           <button
             className={`connection-status ${connection.status}`}
-            title={`${connection.status} · ${connection.target}\n${root || "Opening workspace"}\nOpen a folder`}
+            title={`${connection.status} · ${connection.target}\n${connection.error || root || "Opening workspace"}\nOpen a folder`}
             aria-label={local ? "Local workspace" : "Remote workspace"}
             onClick={() => execute("window.openFolder")}
           >
@@ -4019,8 +4557,12 @@ export default function App() {
                 ? "Local"
                 : `SSH: ${connection.target}`
               : connection.status === "connecting"
-                ? "Connecting…"
-                : "Disconnected"}
+                ? connection.retryAttempt
+                  ? "Reconnecting…"
+                  : "Connecting…"
+                : connection.retryDelay
+                  ? `Retrying in ${connection.retryDelay / 1000}s…`
+                  : "Disconnected"}
           </button>
           {connection.status === "disconnected" && (
             <button onClick={() => execute("connection.reconnect")}>
@@ -4048,15 +4590,19 @@ export default function App() {
           >
             {vimMode ? "VIM ON" : "VIM OFF"}
           </button>
-          <span>UTF-8</span>
+          {!current?.pdf && !current?.image && !current?.unsupported && (
+            <span>UTF-8</span>
+          )}
           <span>
-            {current?.image
-              ? "Image"
-              : current
-                ? isMarkdown(current.path)
-                  ? "Markdown"
-                  : basename(current.path).split(".").pop()
-                : "Ready"}
+            {current?.pdf
+              ? "PDF"
+              : current?.image
+                ? "Image"
+                : current
+                  ? isMarkdown(current.path)
+                    ? "Markdown"
+                    : basename(current.path).split(".").pop()
+                  : "Ready"}
           </span>
           <span>
             {groups(layout).length} group

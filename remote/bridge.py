@@ -93,16 +93,19 @@ def image_path(args):
             return candidate
     raise ValueError("Image not found. Tried: " + " | ".join(candidates))
 
-def open_snapshot(args, image=False):
+def open_snapshot(args, image=False, pdf=False):
     path = image_path(args) if image else resolve(args["path"])
-    limit = MAX_IMAGE if image else MAX_TEXT
+    limit = 32 * 1024 * 1024 if pdf else MAX_IMAGE if image else MAX_TEXT
     before = stat_file(path)
     with open(path, "rb") as file:
         data = file.read(limit + 1)
     if len(data) > limit:
-        raise ValueError("Images are limited to 16 MiB" if image else "Text files are limited to 4 MiB")
+        raise ValueError("PDF files are limited to 32 MiB" if pdf else "Images are limited to 16 MiB" if image else "Text files are limited to 4 MiB")
     mime = None
-    if image:
+    if pdf:
+        if os.path.splitext(path)[1].lower() != ".pdf" or b"%PDF-" not in data[:1024]:
+            raise ValueError("This file is not a valid PDF")
+    elif image:
         mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".bmp": "image/bmp"}.get(os.path.splitext(path)[1].lower())
         if not mime:
             raise ValueError("Unsupported image format (SVG opens as source)")
@@ -467,8 +470,8 @@ def dispatch(method, args):
             return project_settings(args, write=True)
     if method == "list":
         return list_dir(args["path"], max(0, int(args.get("offset", 0))))
-    if method == "read-open" or method == "image-open":
-        return open_snapshot(args, method == "image-open")
+    if method in ("read-open", "image-open", "pdf-open"):
+        return open_snapshot(args, method == "image-open", method == "pdf-open")
     if method == "file-chunk":
         with snapshot_lock:
             data = snapshots[args["token"]]

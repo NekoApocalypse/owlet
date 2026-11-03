@@ -66,14 +66,14 @@ const tomorrowHighlight = HighlightStyle.define([
   { tag: tags.function(tags.variableName), color: "#bbdaff" },
   { tag: [tags.operator, tags.regexp], color: "#99ffff" },
   { tag: [tags.link, tags.url], color: "#bbdaff", textDecoration: "underline" },
-  { tag: tags.strong, fontWeight: "bold" },
-  { tag: tags.emphasis, fontStyle: "italic" },
+  { tag: tags.strong, color: "#ffeead", fontWeight: "bold" },
+  { tag: tags.emphasis, color: "#ebbbff", fontStyle: "italic" },
   { tag: tags.monospace, color: "#ffc58f" },
   { tag: [tags.processingInstruction, tags.meta], color: "#99ffff" },
   { tag: tags.labelName, color: "#ffeead" },
   { tag: tags.quote, color: "#bbdaff", fontStyle: "italic" },
   { tag: tags.contentSeparator, color: "#7285b7" },
-  { tag: tags.strikethrough, color: "#7285b7", textDecoration: "line-through" },
+  { tag: tags.strikethrough, color: "#9dadce", textDecoration: "line-through" },
   { tag: tags.escape, color: "#99ffff" },
   { tag: tags.inserted, color: "#d1f1a9" },
   { tag: [tags.deleted, tags.invalid], color: "#ff9da4" },
@@ -94,6 +94,44 @@ const editorCache = new Map<
   { json: any; scroll: number; bytes: number }
 >();
 let lastFocused: EditorView | undefined;
+export function sourceView(element: HTMLElement | null) {
+  return element ? EditorView.findFromDOM(element) : null;
+}
+export async function sourceClipboard(
+  action: "cut" | "copy" | "paste",
+  element: HTMLElement | null,
+) {
+  const editor = sourceView(element);
+  if (!editor) throw new Error("Focus a source editor first");
+  const before = editor.state;
+  const selection = before.selection.main;
+  if (action !== "paste" && selection.empty) return false;
+  const text =
+    action === "paste"
+      ? (await navigator.clipboard.readText()).replace(/\r\n?/g, "\n")
+      : before.sliceDoc(selection.from, selection.to);
+  if (action !== "paste") await navigator.clipboard.writeText(text);
+  if (action !== "copy") {
+    if (editor.state !== before)
+      throw new Error(
+        "The editor changed while accessing the clipboard. Try again.",
+      );
+    if (before.readOnly) throw new Error("This editor is read-only");
+    editor.dispatch({
+      changes: {
+        from: selection.from,
+        to: selection.to,
+        insert: action === "paste" ? text : "",
+      },
+      selection: {
+        anchor: selection.from + (action === "paste" ? text.length : 0),
+      },
+      userEvent: action === "paste" ? "input.paste" : "delete.cut",
+    });
+  }
+  editor.focus();
+  return true;
+}
 export function editorAction(
   action:
     | "find"
@@ -279,6 +317,30 @@ export default function Editor({
       lineNumbers(),
       history(),
       drawSelection(),
+      Prec.highest(
+        EditorView.domEventHandlers({
+          mousedown(event, view) {
+            // A mouse drag always selects, even when starting on selected text.
+            // Keep double/triple-click and Shift-click behavior owned by CodeMirror.
+            if (event.button === 0 && event.detail === 1 && !event.shiftKey) {
+              const at = view.posAtCoords({
+                x: event.clientX,
+                y: event.clientY,
+              });
+              if (at !== null && !view.state.selection.main.empty)
+                view.dispatch({
+                  selection: { anchor: at },
+                  userEvent: "select.pointer",
+                });
+            }
+            return false;
+          },
+          dragstart(event) {
+            event.preventDefault();
+            return true;
+          },
+        }),
+      ),
       highlightActiveLine(),
       bracketMatching(),
       indentOnInput(),

@@ -14,6 +14,13 @@ Each window owns its workspace. Windows for the same SSH host share a connection
 shells and preserves editor buffers; other hosts and local windows are unaffected. A remote multiplexer owns persistent
 agent sessions. Local folders need neither SSH nor Python.
 
+Dropped SSH connections reconnect automatically. Failed attempts back off through 1, 2, 4, 8, 16, then 30 seconds;
+the status bar shows when Owlet is retrying. SSH keepalives detect silent outages, which can take roughly 30 seconds.
+**Connection: Reconnect SSH** retries immediately. **Connection: Disconnect SSH / Stop Reconnecting** stops retries
+for that host until you reconnect; closing its last window also stops them. Authentication and host-key failures need
+attention and do not retry automatically. Files and Explorer recover without reloading the window; unsaved buffers stay
+intact and save conflicts still require review. Direct shells must be started again explicitly after reconnecting.
+
 ## Return to recent work
 
 The welcome page shows Owlet's logo and tagline, **Start** actions, and the six most recent local/SSH workspaces.
@@ -73,6 +80,32 @@ Hiding the terminal preserves it. **Reload Window** starts a new direct shell an
 before discarding unsaved edits. Do not reload a window if you need to preserve work running in its direct shell.
 
 ## Read and edit
+
+Files that cannot be displayed open a temporary **Unsupported file** tab with the reason, and their Explorer row is revealed
+and focused. Switching to another file, editor group, or terminal closes the temporary tab. The command palette and switching
+away from the application do not dismiss it. Reopen the file after switching away to retry. Unknown extensions that contain
+valid text still open normally; SSH failures, missing files and permission errors remain separate errors.
+
+Open a `.pdf` file from Explorer, Ctrl+P, or a Markdown link to view it in a tab, locally or over SSH.
+Use the compact PDF toolbar for pages, zoom, fit-to-width, and copying page text. Text can also be selected and copied.
+The renderer, worker, fonts and CMaps are bundled locally and loaded on demand; no viewer code is sent over SSH.
+The first version transfers the selected PDF in full (up to 32 MiB), then renders one page at a time locally.
+PDFs are read-only. Password-protected documents, forms, annotations, printing, and full-document search are not supported yet.
+
+Middle-click a tab to close it with the usual unsaved-change safeguards. Right-click a tab for path copying,
+Split Left/Right, Show in Explorer, and Close All Saved Tabs. The latter leaves unsaved files and terminals open.
+
+Mouse dragging selects source text, including with Vim enabled; it does not move characters by drag-and-drop.
+Right-click selected source text for **Cut**, **Copy**, or **Paste**, or selected preview text for **Copy**.
+These use the system text clipboard independently of Vim commands. Cut/Paste stay unsaved until you save and can be undone.
+
+New windows open slightly offset from the current window, staying inside that display's work area.
+When opening a remote workspace, the welcome page and Explorer show the SSH connection state before loading files.
+Connection failures retain the SSH error and offer **Reconnect**, which retries the requested folder. A missing-folder
+notice appears only after a live connection returns a filesystem error.
+
+When tabs overflow, tiny indicators show which side has more tabs. Scroll over the tab strip with a mouse wheel or trackpad;
+there are no tab-strip scrollbars. Selecting a tab or resizing its group brings the active tab into view.
 
 - `Ctrl+Shift+P` or `F1` opens the command palette.
 - `Ctrl+S` saves. Files are not saved automatically.
@@ -181,6 +214,9 @@ Inside a preview, `Ctrl++` (also `Ctrl+=`), `Ctrl+-`, and `Ctrl+wheel` zoom the 
 `Ctrl+0` or the percentage badge resets it. All previews in that window share the zoom, including previews opened later.
 The surrounding UI, source editors, and terminals stay at their own sizes. Preview zoom resets when the window reloads;
 use the saved preview font size preference for a lasting reading size.
+The keyboard shortcuts also work immediately after selecting a preview tab or opening it from the Explorer;
+clicking into the article first is unnecessary. Numpad plus/minus are supported. Source editors, terminals,
+and modal inputs retain their own keyboard behavior.
 
 ## Quick Open and file actions
 
@@ -190,6 +226,13 @@ indexed. `files.quickOpenMaxDepth` in Settings defaults to 5 (0 means root files
 `node_modules`, `.venv`, `__pycache__`, and symlink directories. It stops at 20,000 files, 5,000 queued folders, or 10,000 listing
 pages and labels a capped/error result as partial. Refresh with the Quick Open refresh button; reopening after 15 seconds
 also refreshes while keeping existing results usable. It is not a continuously watched filesystem-wide search.
+
+Opening or activating a file reveals it in the Explorer: its parent folders expand, its row is selected, and the tree
+scrolls to it without moving keyboard focus. This also follows tab and split-group switches. Only the necessary ancestor
+folders and directory pages are loaded. A hidden Explorer stays hidden until reopened; files outside the workspace and
+Settings have no tree target. Hidden ancestors of the active file are visible without changing Show hidden files.
+The Explorer's right edge reserves an 8-pixel non-draggable gutter for resizing, alongside the thin visible divider.
+File dragging and the scrollbar remain inside the tree, outside that resize area.
 
 Right-click an Explorer item or file tab for **New File**, **New Folder**, **Cut**, **Copy**, **Paste**, **Copy Path**, **Copy Relative Path**, **Rename**, and
 **Delete**. SSH file menus also offer **Download**. New items are created beside the clicked file or inside the clicked folder.
@@ -220,6 +263,9 @@ Source editors highlight Markdown structure, inline code, links, and fenced code
 are case-insensitive, including `.MD` and `.mdown`. Common code/configuration files use local syntax parsers: JavaScript,
 TypeScript, Python, HTML, CSS, JSON, YAML, shell, PowerShell, C/C++, C#, Java, Kotlin, Rust, Go, SQL, TOML, Dockerfiles, and diff.
 Unknown languages stay readable as plain text. This is token highlighting, without language servers or semantic analysis.
+Markdown emphasis styles the enclosed text as well as its delimiters: `**bold**` / `__bold__` is bold and warm yellow,
+`*italic*` / `_italic_` is italic and lavender, and `~~strikethrough~~` is muted blue with a line through the text.
+Nested styles combine; formatting syntax inside inline code stays literal.
 
 ## Everyday Vim
 
