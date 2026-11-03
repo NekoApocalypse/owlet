@@ -41,6 +41,10 @@ const { execFileSync } = require("node:child_process");
     path.join(root, "node_modules/pdfjs-dist/LICENSE"),
     path.join(destination, "LICENSE.pdfjs"),
   );
+  fs.copyFileSync(
+    path.join(root, "assets/LICENSE.lucide.txt"),
+    path.join(destination, "LICENSE.lucide"),
+  );
   // node-pty ships its native ConPTY binaries; no Node or compiler is needed by users.
   for (const moduleName of ["node-pty", "jsonc-parser"]) {
     fs.cpSync(

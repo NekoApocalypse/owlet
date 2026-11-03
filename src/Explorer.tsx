@@ -3,32 +3,14 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
-  FileText,
-  FileCode,
-  Image,
   RefreshCw,
   FolderOpen,
   ArrowUpRight,
 } from "lucide-react";
-import {
-  basename,
-  dirname,
-  isImage,
-  isPdf,
-  isMarkdown,
-  type Entry,
-  type ConnectionState,
-} from "./types";
+import { basename, dirname, type Entry, type ConnectionState } from "./types";
 type Listing = { entries: Entry[]; path: string; next: number | null };
-export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
-  return isImage(path) ? (
-    <Image size={size} className="image-icon" />
-  ) : isMarkdown(path) || isPdf(path) ? (
-    <FileText size={size} className="markdown-icon" />
-  ) : (
-    <FileCode size={size} className="code-icon" />
-  );
-}
+import { FileIcon } from "./FileIcon";
+export { FileIcon } from "./FileIcon";
 export default function Explorer({
   root,
   selected,

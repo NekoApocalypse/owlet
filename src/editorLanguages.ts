@@ -21,6 +21,8 @@ import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
 import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
 import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { stex } from "@codemirror/legacy-modes/mode/stex";
+import { bibtex } from "./bibtex";
 import { isMarkdown } from "./types";
 
 // Local tokenizers only. Files and fenced blocks share aliases and cached
@@ -48,8 +50,24 @@ const factories: Record<string, () => LanguageSupport> = {
   dockerfile: () => new LanguageSupport(StreamLanguage.define(dockerFile)),
   powershell: () => new LanguageSupport(StreamLanguage.define(powerShell)),
   diff: () => new LanguageSupport(StreamLanguage.define(diff)),
+  latex: () => new LanguageSupport(StreamLanguage.define(stex)),
+  bibtex: () => new LanguageSupport(StreamLanguage.define(bibtex)),
 };
 const aliases: Record<string, string> = {
+  tex: "latex",
+  ltx: "latex",
+  latex: "latex",
+  sty: "latex",
+  cls: "latex",
+  dtx: "latex",
+  ins: "latex",
+  bbx: "latex",
+  cbx: "latex",
+  lbx: "latex",
+  bib: "bibtex",
+  bibtex: "bibtex",
+  biblatex: "bibtex",
+  bst: "bibtex",
   js: "javascript",
   mjs: "javascript",
   cjs: "javascript",

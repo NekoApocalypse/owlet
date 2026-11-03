@@ -58,6 +58,7 @@ const errors = [],
       path: path.join(root, name).replaceAll("\\", "/"),
     });
     if (/\.(md|mdown)$/i.test(name)) await cmd("markdown.source");
+    if (/\.html?$/i.test(name)) await cmd("html.source");
     await page.locator(".cm-content").waitFor();
     await page.waitForTimeout(150);
     const lines = await page.locator(".cm-line").evaluateAll((els) =>
