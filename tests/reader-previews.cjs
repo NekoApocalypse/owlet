@@ -110,11 +110,15 @@ async function loading(page, file, type) {
     cmd(page, "editor.setText", { text: "Do not edit placeholders" }),
     /unavailable|text file/,
   );
-  if (type === "PDF" && file.startsWith(root + "/"))
+  if (type === "PDF" && file.startsWith(root + "/")) {
+    // State assertions above are immediate; let the compositor finish painting
+    // text before capturing review evidence (the read remains gated).
+    await page.waitForTimeout(300);
     await page.screenshot({
       path: path.join(base, "loading.png"),
       animations: "disabled",
     });
+  }
   // A later user action wins even when this transfer completes afterwards.
   await cmd(page, "file.open", {
     path: file.slice(0, file.lastIndexOf("/")) + "/readme.md",
