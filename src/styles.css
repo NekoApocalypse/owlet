@@ -1589,6 +1589,10 @@ input {
   justify-content: center;
   padding: var(--space-24);
 }
+.modal-shade.color-picker-overlay {
+  background: transparent;
+  backdrop-filter: none;
+}
 .modal {
   width: 465px;
   padding: var(--space-16);

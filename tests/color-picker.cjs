@@ -20,6 +20,12 @@ const cmd = (page, id, args = {}) =>
     args,
   });
 let app;
+async function inputEquals(input, expected, message) {
+  const started = Date.now();
+  while ((await input.inputValue()) !== expected && Date.now() - started < 3000)
+    await input.page().waitForTimeout(25);
+  assert.equal(await input.inputValue(), expected, message);
+}
 async function launch() {
   app = await _electron.launch({
     executablePath: path.resolve(process.env.LWR_PACKAGED),
@@ -72,6 +78,14 @@ async function bars(page, expected) {
     .click();
   const dialog = page.getByRole("dialog", { name: "Project window color" });
   await dialog.waitFor();
+  assert.deepEqual(
+    await page.locator(".color-picker-overlay").evaluate((el) => {
+      const style = getComputedStyle(el);
+      return [style.backgroundColor, style.backdropFilter, style.opacity];
+    }),
+    ["rgba(0, 0, 0, 0)", "none", "1"],
+    "Live colors must remain undimmed and unblurred",
+  );
   assert.equal(await dialog.locator(".color-swatches button").count(), 8);
   const original = fs.readFileSync(config, "utf8");
   const hex = page.getByRole("textbox", { name: "Project color hex" });
@@ -79,27 +93,27 @@ async function bars(page, expected) {
   const s = page.getByRole("spinbutton", { name: "Saturation", exact: true });
   const b = page.getByRole("spinbutton", { name: "Brightness", exact: true });
   await hex.fill("#ff0000");
-  assert.equal(await h.inputValue(), "0");
-  assert.equal(await s.inputValue(), "100");
-  assert.equal(await b.inputValue(), "100");
+  await inputEquals(h, "0");
+  await inputEquals(s, "100");
+  await inputEquals(b, "100");
   await bars(page, "rgb(255, 0, 0)");
   await h.fill("120");
-  assert.equal(await hex.inputValue(), "#00ff00");
+  await inputEquals(hex, "#00ff00");
   await bars(page, "rgb(0, 255, 0)");
   await s.fill("50");
   await b.fill("80");
-  assert.equal(await hex.inputValue(), "#66cc66");
+  await inputEquals(hex, "#66cc66");
   await hex.fill("#000000");
-  assert.equal(await h.inputValue(), "120", "Black preserves hue");
-  assert.equal(await s.inputValue(), "50", "Black preserves saturation");
+  await inputEquals(h, "120", "Black preserves hue");
+  await inputEquals(s, "50", "Black preserves saturation");
   await b.fill("80");
-  assert.equal(await hex.inputValue(), "#66cc66");
+  await inputEquals(hex, "#66cc66");
   await hex.fill("#808080");
-  assert.equal(await h.inputValue(), "120", "Gray preserves hue");
+  await inputEquals(h, "120", "Gray preserves hue");
   await s.fill("100");
-  assert.equal(await hex.inputValue(), "#008000");
+  await inputEquals(hex, "#008000");
   await hex.fill("336699");
-  assert.equal(await hex.inputValue(), "#336699");
+  await inputEquals(hex, "#336699");
   await hex.fill("#12");
   assert.equal(await hex.getAttribute("aria-invalid"), "true");
   assert(
@@ -126,6 +140,15 @@ async function bars(page, expected) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.up();
+  await page.waitForFunction(() =>
+    ["Saturation", "Brightness"].every(
+      (label) =>
+        Math.abs(
+          Number(document.querySelector(`input[aria-label="${label}"]`).value) -
+            50,
+        ) <= 1,
+    ),
+  );
   assert(Math.abs(Number(await s.inputValue()) - 50) <= 1);
   assert(Math.abs(Number(await b.inputValue()) - 50) <= 1);
   await page.keyboard.press("ArrowRight");
@@ -136,20 +159,20 @@ async function bars(page, expected) {
   await page.mouse.down();
   await page.mouse.move(box.x + box.width + 30, box.y - 20);
   await page.mouse.up();
-  assert.equal(await s.inputValue(), "100");
-  assert.equal(await b.inputValue(), "100");
+  await inputEquals(s, "100");
+  await inputEquals(b, "100");
   const hue = page.getByRole("slider", { name: "Hue slider" });
   await hue.focus();
   await page.keyboard.press("End");
-  assert.equal(await h.inputValue(), "360");
-  assert.equal(await hex.inputValue(), "#ff0000");
+  await inputEquals(h, "360");
+  await inputEquals(hex, "#ff0000");
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowRight");
-  assert.equal(await h.inputValue(), "1");
+  await inputEquals(h, "1");
   await page
     .getByRole("button", { name: "Choose #6b487d", exact: true })
     .click();
-  assert.equal(await hex.inputValue(), "#6b487d");
+  await inputEquals(hex, "#6b487d");
   await bars(page, "rgb(107, 72, 125)");
   assert(
     await dialog.locator(".color-channels").evaluate((el) =>
@@ -196,7 +219,7 @@ async function bars(page, expected) {
   // The API and UI share the same validation and revision conflict protection.
   await cmd(page, "project.color.set", { color: "#445b8a" });
   await cmd(page, "project.color.set");
-  assert.equal(await hex.inputValue(), "#445b8a");
+  await inputEquals(hex, "#445b8a");
   await hex.fill("#123456");
   fs.writeFileSync(
     config,

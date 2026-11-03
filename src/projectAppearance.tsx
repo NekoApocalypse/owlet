@@ -211,7 +211,7 @@ export function useProjectAppearance(
     } as CSSProperties,
     dialog: dialog ? (
       <div
-        className="modal-shade"
+        className="modal-shade color-picker-overlay"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();

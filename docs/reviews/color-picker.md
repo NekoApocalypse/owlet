@@ -6,7 +6,8 @@ Open **Project: Choose Window Color** from the command palette or the title-bar 
 
 The compact picker provides a saturation/brightness square, hue slider, HSB fields and HEX entry.
 The original eight preset colors remain available below the fields. The actual title/status bars
-preview changes immediately, including readable foreground colors. Save commits the color;
+preview changes immediately, including readable foreground colors. The window stays undimmed
+and unblurred while picking, so those colors remain accurate. Save commits the color;
 Cancel or Escape restores the saved appearance.
 
 Try dragging outside the square, adjusting hue after choosing gray or black, and typing an incomplete

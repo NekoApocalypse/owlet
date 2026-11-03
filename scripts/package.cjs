@@ -3,9 +3,21 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 (async () => {
   const root = path.resolve(__dirname, "..");
-  const destination = path.join(root, "release", "Owlet");
-  if (!destination.startsWith(root + path.sep))
+  const outputIndex = process.argv.indexOf("--out");
+  if (outputIndex !== -1 && !process.argv[outputIndex + 1])
+    throw new Error("--out requires a destination inside release/");
+  const destination = path.resolve(
+    root,
+    outputIndex === -1 ? "release/Owlet" : process.argv[outputIndex + 1],
+  );
+  if (!destination.startsWith(path.join(root, "release") + path.sep))
     throw new Error("Invalid package destination");
+  if (outputIndex !== -1 && !process.argv.includes("--no-shortcuts"))
+    throw new Error("Custom package destinations require --no-shortcuts");
+  const packageVersion = require("../package.json").version;
+  if (!/^\d+\.\d+\.\d+$/.test(packageVersion))
+    throw new Error("Expected a numeric major.minor.patch release version");
+  const [major, minor, patch] = packageVersion.split(".").map(Number);
   if (!fs.existsSync(path.join(root, "dist", "index.html")))
     throw new Error("Run npm run build first");
   const runtime = path.dirname(require("electron"));
@@ -41,7 +53,7 @@ const { execFileSync } = require("node:child_process");
     const generatedTarget = path.resolve(appDir, directory);
     if (
       !generatedTarget.startsWith(
-        path.resolve(root, "release", "Owlet", "resources", "app") + path.sep,
+        path.resolve(destination, "resources", "app") + path.sep,
       )
     )
       throw new Error("Invalid generated application path");
@@ -70,7 +82,7 @@ const { execFileSync } = require("node:child_process");
       {
         name: "owlet",
         productName: "Owlet",
-        version: "0.1.0",
+        version: packageVersion,
         license: require("../package.json").license,
         main: "electron/main.cjs",
       },
@@ -147,8 +159,8 @@ const { execFileSync } = require("node:child_process");
         LegalCopyright: "Owlet contributors",
       },
     );
-    version.setFileVersion(0, 1, 0, 0, 1033);
-    version.setProductVersion(0, 1, 0, 0, 1033);
+    version.setFileVersion(major, minor, patch, 0, 1033);
+    version.setProductVersion(major, minor, patch, 0, 1033);
     version.outputToResourceEntries(resources.entries);
   }
   resources.outputResource(executable);
