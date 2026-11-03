@@ -24,6 +24,14 @@ let app;
       args,
     });
   const clipboard = () => app.evaluate(({ clipboard }) => clipboard.readText());
+  async function until(predicate) {
+    const started = Date.now();
+    while (!(await predicate())) {
+      if (Date.now() - started > 10000)
+        throw Error("Timed out waiting for clipboard action");
+      await page.waitForTimeout(50);
+    }
+  }
   await cmd("terminal.toggle", { visible: false });
   await cmd("file.open", { path: file });
   async function point(at) {
@@ -75,23 +83,24 @@ let app;
       "Dragging must never change text",
     );
     await menu("Copy");
+    await until(async () => (await clipboard()) === "bravo");
     assert.equal(await clipboard(), "bravo");
     await menu("Cut");
+    await until(
+      async () =>
+        (await cmd("file.inspect", { path: file, readOnly: true })).text ===
+        "alpha  charlie delta\nsecond line\n",
+    );
     assert.equal(await clipboard(), "bravo");
     assert.equal(
       (await cmd("file.inspect", { path: file, readOnly: true })).text,
       "alpha  charlie delta\nsecond line\n",
     );
     await menu("Paste");
-    await page.waitForFunction(
-      async ({ file, text }) =>
-        (
-          await window.owletCommands.execute("file.inspect", {
-            path: file,
-            readOnly: true,
-          })
-        ).text === text,
-      { file, text },
+    await until(
+      async () =>
+        (await cmd("file.inspect", { path: file, readOnly: true })).text ===
+        text,
     );
     assert.equal(
       (await cmd("file.inspect", { path: file, readOnly: true })).text,
@@ -128,6 +137,7 @@ let app;
   await previewMenu
     .getByRole("menuitem", { name: "Copy", exact: true })
     .click();
+  await until(async () => (await clipboard()) === "preview phrase");
   assert.equal(await clipboard(), "preview phrase");
   await cmd("tab.activate", { path: file });
   await page.locator(".cm-content").click();

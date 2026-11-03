@@ -302,12 +302,27 @@ class LocalConnection extends EventEmitter {
     if (method === "terminal-start") return this.startTerminal(args);
     throw new Error("Unsupported local operation: " + method);
   }
-  async download(args, image = false) {
+  async download(args, image = false, pdf = false) {
     const file = image ? imagePath(args) : resolve(args.path),
       before = stat(file);
-    const data = bytes(file, image ? MAX_IMAGE : MAX_TEXT);
+    const data = bytes(
+      file,
+      pdf ? 32 * 1024 * 1024 : image ? MAX_IMAGE : MAX_TEXT,
+    );
     if (before.stamp !== stat(file).stamp)
       throw new Error("File changed while reading; try again");
+    if (pdf) {
+      if (
+        path.extname(file).toLowerCase() !== ".pdf" ||
+        !data.subarray(0, 1024).includes(Buffer.from("%PDF-"))
+      )
+        throw new Error("This file is not a valid PDF");
+      return {
+        path: display(file),
+        stamp: before.stamp,
+        data: data.toString("base64"),
+      };
+    }
     if (image) {
       const mime = {
         ".png": "image/png",

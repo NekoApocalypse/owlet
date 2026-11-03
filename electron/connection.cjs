@@ -234,8 +234,11 @@ class Connection extends EventEmitter {
       this.child.stdin.write(line);
     }
   }
-  async download(args, image = false) {
-    const meta = await this.request(image ? "image-open" : "read-open", args);
+  async download(args, image = false, pdf = false) {
+    const meta = await this.request(
+      pdf ? "pdf-open" : image ? "image-open" : "read-open",
+      args,
+    );
     const chunks = [];
     try {
       let offset = 0;
@@ -261,6 +264,12 @@ class Connection extends EventEmitter {
       const data = Buffer.concat(chunks);
       if (data.length !== meta.size)
         throw new Error("Incomplete file transfer");
+      if (pdf)
+        return {
+          path: meta.path,
+          stamp: meta.stamp,
+          data: data.toString("base64"),
+        };
       if (image)
         return {
           path: meta.path,

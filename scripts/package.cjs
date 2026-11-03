@@ -25,6 +25,10 @@ const { execFileSync } = require("node:child_process");
     path.join(root, "node_modules/mark.js/LICENSE"),
     path.join(destination, "LICENSE.mark.js"),
   );
+  fs.copyFileSync(
+    path.join(root, "node_modules/pdfjs-dist/LICENSE"),
+    path.join(destination, "LICENSE.pdfjs"),
+  );
   // node-pty ships its native ConPTY binaries; no Node or compiler is needed by users.
   for (const moduleName of ["node-pty", "jsonc-parser"]) {
     fs.cpSync(
@@ -104,7 +108,11 @@ const { execFileSync } = require("node:child_process");
     "docs/spacing.md",
     "docs/performance.md",
   ]) {
-    if (relative === "README_CN.md" && !fs.existsSync(path.join(root, relative))) continue;
+    if (
+      relative === "README_CN.md" &&
+      !fs.existsSync(path.join(root, relative))
+    )
+      continue;
     const output = path.join(destination, relative);
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.cpSync(path.join(root, relative), output, { recursive: true });

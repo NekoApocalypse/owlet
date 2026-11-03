@@ -81,6 +81,15 @@ before discarding unsaved edits. Do not reload a window if you need to preserve 
 
 ## Read and edit
 
+Open a `.pdf` file from Explorer, Ctrl+P, or a Markdown link to view it in a tab, locally or over SSH.
+Use the compact PDF toolbar for pages, zoom, fit-to-width, and copying page text. Text can also be selected and copied.
+The renderer, worker, fonts and CMaps are bundled locally and loaded on demand; no viewer code is sent over SSH.
+The first version transfers the selected PDF in full (up to 32 MiB), then renders one page at a time locally.
+PDFs are read-only. Password-protected documents, forms, annotations, printing, and full-document search are not supported yet.
+
+Middle-click a tab to close it with the usual unsaved-change safeguards. Right-click a tab for path copying,
+Split Left/Right, Show in Explorer, and Close All Saved Tabs. The latter leaves unsaved files and terminals open.
+
 Mouse dragging selects source text, including with Vim enabled; it does not move characters by drag-and-drop.
 Right-click selected source text for **Cut**, **Copy**, or **Paste**, or selected preview text for **Copy**.
 These use the system text clipboard independently of Vim commands. Cut/Paste stay unsaved until you save and can be undone.

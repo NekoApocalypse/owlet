@@ -14,6 +14,7 @@ import {
   basename,
   dirname,
   isImage,
+  isPdf,
   isMarkdown,
   type Entry,
   type ConnectionState,
@@ -22,7 +23,7 @@ type Listing = { entries: Entry[]; path: string; next: number | null };
 export function FileIcon({ path, size = 15 }: { path: string; size?: number }) {
   return isImage(path) ? (
     <Image size={size} className="image-icon" />
-  ) : isMarkdown(path) ? (
+  ) : isMarkdown(path) || isPdf(path) ? (
     <FileText size={size} className="markdown-icon" />
   ) : (
     <FileCode size={size} className="code-icon" />

@@ -220,6 +220,7 @@ const methods = new Set([
   "stat",
   "stats",
   "image",
+  "pdf",
   "project-settings",
   "project-color",
   "import-peacock",
@@ -235,6 +236,7 @@ ipcMain.handle("remote", async (event, method, args) => {
       root: windows.get(event.sender.id).root || connection.state.home,
     };
   if (method === "read") return connection.download(args);
+  if (method === "pdf") return connection.download(args, false, true);
   if (method === "image") {
     const key = JSON.stringify([connection.kind, connection.target, args]);
     const existing = imageCache.get(key);

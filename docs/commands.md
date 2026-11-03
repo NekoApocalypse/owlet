@@ -88,6 +88,20 @@ unsaved buffers survive, and a missing workspace root shows an inline notice ins
 
 ## Preview reading and preferences
 
+PDF files open through `file.open({path, group?})`. The viewer controls and command palette share
+`pdf.nextPage`, `pdf.previousPage`, `pdf.page({page, group?})` (1-based; omitted page prompts),
+`pdf.zoomIn`, `pdf.zoomOut`, `pdf.actualSize`, `pdf.fitWidth`, and `pdf.copyPageText`.
+Every PDF command accepts optional `group` (default: focused group). `pdf.state({group?})` returns the current path,
+page/count, zoom (`"fit"` or a scale), render state, error and current-page text. Each split pane has independent controls.
+PDF text selection uses the existing `preview.copy` command and Copy context menu. PageUp/PageDown and Ctrl++/Ctrl+-/Ctrl+0
+work when the PDF page has focus; Ctrl+wheel zooms the hovered PDF pane. These are read-only viewers; text-editing commands are unavailable.
+
+Tab middle-click uses `file.close({path, group})`, preserving unsaved-buffer and terminal-close confirmation.
+Tabs have their own menu. `group.splitRight({group?, path?})` and `group.splitLeft({group?, path?})` split the targeted tab;
+`tab.reveal({group?, path?})` shows its Explorer row, opening the sidebar if needed.
+`tab.closeSaved()` closes all clean document tabs across the window, leaving dirty buffers, in-progress saves and terminal
+tabs open. Copy Path and Copy Relative Path reuse the file commands; filesystem operations remain in the Explorer menu.
+
 `connection.reconnect()` immediately connects or joins the active SSH attempt; it cancels a pending automatic retry timer.
 `connection.disconnect()` stops automatic retries and ends that host's direct shells, including while connecting or waiting
 to retry. Windows on the same host share one retry loop. Transient connection loss uses capped exponential backoff;
