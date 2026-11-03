@@ -42,6 +42,17 @@ terminal, tab, folder, connection, and resize controls now dispatch through the 
 
 ## Interaction boundary
 
+`project.color.set({color?: "#RRGGBB", revision?: string | null})` opens the window-color picker when
+called without a color. Its saturation/brightness square, hue slider, HSB/HEX fields and default palette
+edit a local draft with live title/status-bar preview. Save uses this same command with the revision
+observed when the picker opened; Cancel/Escape discard the draft. No settings writes or SSH requests
+are made by dragging or typing. Explicit color arguments save directly through the same validation and
+conflict checks. `project.color.reset` restores the automatic color; `project.settings.get` reports the
+persisted color (not an unsubmitted preview). The single `peacock.color` setting remains unchanged.
+The square supports arrow keys (Shift for steps of ten); all channels also have numeric inputs.
+`tests/color-picker.cjs` covers synchronization, pointer/keyboard controls, previews, cancellation,
+persistence and stale-save rejection.
+
 Typing, IME composition, cursor movement, text selection, scrolling, hover, drag capture, and unsubmitted form drafts are
 widget interactions, not separate palette entries for each event. CodeMirror owns its native editing/search controls and
 keybindings; palette commands use the same editor operations. xterm input and `terminal.sendText` use the same input path.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Command } from "./commands";
+import { ColorPicker, validHex } from "./ColorPicker";
 
 type Settings = {
   path: string;
@@ -49,13 +50,15 @@ export function useProjectAppearance(
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dialog, setDialog] = useState(false);
   const [draft, setDraft] = useState("");
+  const [preview, setPreview] = useState("");
   const [working, setWorking] = useState(false);
   const latest = useRef<Settings | null>(null);
   const dialogRevision = useRef<string | null>(null);
   const errorHandler = useRef(report);
   errorHandler.current = report;
-  const color =
+  const savedColor =
     settings?.color || (root ? automaticColor(`${target}:${root}`) : "#001126");
+  const color = dialog && validHex(preview) ? preview : savedColor;
   const foreground = contrastColor(color);
   const accept = (value: Settings) => {
     latest.current = value;
@@ -67,6 +70,7 @@ export function useProjectAppearance(
       await window.lwr.remote<Settings>("project-settings", { root }),
     );
   }
+  useEffect(() => setDialog(false), [root, target, connected]);
   useEffect(() => {
     if (!root || !connected) return;
     let cancelled = false,
@@ -166,7 +170,9 @@ export function useProjectAppearance(
         if (args.color !== undefined) return save(args.color, args.revision);
         const current = await reload();
         dialogRevision.current = current.revision;
-        setDraft(current.color || color);
+        const initial = current.color || automaticColor(`${target}:${root}`);
+        setDraft(initial);
+        setPreview(initial);
         setDialog(true);
       },
     },
@@ -207,12 +213,32 @@ export function useProjectAppearance(
       <div
         className="modal-shade"
         onKeyDown={(event) => {
-          if (event.key === "Escape" && !working) setDialog(false);
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            if (!working) setDialog(false);
+          }
+          if (event.key === "Tab") {
+            const controls = Array.from(
+              event.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+              ),
+            );
+            const first = controls[0],
+              last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          }
         }}
       >
         <form
           className="modal color-dialog"
           role="dialog"
+          aria-modal="true"
           aria-label="Project window color"
           onSubmit={async (event) => {
             event.preventDefault();
@@ -230,48 +256,20 @@ export function useProjectAppearance(
           }}
         >
           <h2>Project window color</h2>
-          <p>
-            Color this project's title bar and status bar. Your reading theme
-            stays Tomorrow Night Blue.
-          </p>
-          <div
-            className="color-sample"
-            style={{
-              backgroundColor: /^#[0-9a-f]{6}$/i.test(draft) ? draft : color,
-              color: /^#[0-9a-f]{6}$/i.test(draft)
-                ? contrastColor(draft)
-                : foreground,
-            }}
+          <fieldset
+            className="color-controls"
+            disabled={working}
+            inert={working}
           >
-            {root.split("/").filter(Boolean).pop()} — Owlet
-          </div>
-          <div className="color-swatches">
-            {projectColors.map((value) => (
-              <button
-                type="button"
-                key={value}
-                aria-label={`Choose ${value}`}
-                aria-pressed={draft === value}
-                style={{ backgroundColor: value }}
-                onClick={() => setDraft(value)}
-              />
-            ))}
-          </div>
-          <label>
-            Custom color
-            <input
-              autoFocus
-              aria-label="Project color hex"
-              value={draft}
-              maxLength={7}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="#fa9af4"
+            <ColorPicker
+              initial={draft}
+              palette={projectColors}
+              onChange={(value) => {
+                setDraft(value);
+                if (validHex(value)) setPreview(value);
+              }}
             />
-          </label>
-          <p className="settings-path">
-            One setting: <code>peacock.color</code> in{" "}
-            <code>.owlet/settings.json</code>
-          </p>
+          </fieldset>
           <div className="modal-actions">
             <button
               type="button"
