@@ -64,6 +64,7 @@ import {
 } from "./previewFindCommands";
 import type { RecentWorkspace, TerminalSession } from "./types";
 import { useProjectAppearance } from "./projectAppearance";
+import { useAbout } from "./About";
 import {
   basename,
   dirname,
@@ -1182,6 +1183,7 @@ export default function App() {
       createTerminal();
     }
   }, [root, connected]);
+  const about = useAbout(report);
   const appearance = useProjectAppearance(
     root,
     connection.target,
@@ -1191,6 +1193,7 @@ export default function App() {
   const { api: commandApi, execute } = useCommands(
     [
       ...appearance.commands,
+      ...about.commands,
       {
         id: "project.settings.open",
         title: "Project: Open .owlet/settings.json",
@@ -4846,6 +4849,7 @@ export default function App() {
         />
       )}
       {appearance.dialog}
+      {about.dialog}
       {sshInput && (
         <div className="modal-shade">
           <form

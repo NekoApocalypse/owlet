@@ -200,6 +200,28 @@ function trusted(event) {
   )
     throw new Error("Untrusted sender");
 }
+// Read this process's immutable package metadata, never the latest-launcher
+// pointer: old windows must continue reporting their own running build.
+ipcMain.handle("about", (event) => {
+  trusted(event);
+  const metadata = require("../package.json");
+  return {
+    version: app.getVersion(),
+    build: metadata.owletBuild || {
+      label: "Development build",
+      commit: null,
+      dirty: false,
+      builtAt: null,
+    },
+    platform: process.platform,
+    arch: process.arch,
+    runtime: {
+      electron: process.versions.electron,
+      chromium: process.versions.chrome,
+      node: process.versions.node,
+    },
+  };
+});
 ipcMain.handle("bootstrap", (event) => {
   trusted(event);
   const { root, file, session } = windows.get(event.sender.id);
@@ -416,6 +438,8 @@ ipcMain.handle("file-menu", (event) => {
     { type: "separator" },
     { label: "Save", accelerator: "Ctrl+S", click: invoke("file.save") },
     { label: "Save All", click: invoke("file.saveAll") },
+    { type: "separator" },
+    { label: "About Owlet", click: invoke("help.about") },
     { type: "separator" },
     { label: "Close Window", click: invoke("window.close") },
   ]).popup({

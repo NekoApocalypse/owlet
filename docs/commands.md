@@ -42,6 +42,14 @@ terminal, tab, folder, connection, and resize controls now dispatch through the 
 
 ## Interaction boundary
 
+**File → About Owlet** invokes `help.about`. `help.about({readOnly: true})` returns version, build label,
+source commit, modified-source flag, build time, platform/architecture and runtime versions without
+opening the dialog. `help.copyVersion` copies the same diagnostic fields without workspace paths,
+SSH targets or user settings. The GitHub button uses `link.openExternal`. Metadata belongs to the
+running package, so an older open window keeps reporting its own build after a launcher update.
+Packaging records this identity automatically; `OWLET_BUILD_LABEL` optionally names a release or review
+build (for example, `Release` or `PR #8`). Source-archive and development runs disclose missing metadata.
+
 File opening commits a tab, active selection and loading placeholder before reading its bytes.
 `file.open({path, group?})` still resolves when the read finishes; UI callers need not wait to show progress.
 `file.inspect` and `workspace.state().documents` report `loading` and `loadError`. Pending files cannot

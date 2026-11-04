@@ -1593,6 +1593,45 @@ input {
   background: transparent;
   backdrop-filter: none;
 }
+.modal.about-dialog {
+  width: 400px;
+}
+.about-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+.about-header img {
+  width: 44px;
+  height: 44px;
+}
+.about-header > button {
+  margin-left: auto;
+  align-self: flex-start;
+  padding: var(--space-4);
+}
+.about-dialog .about-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.about-dialog .about-header p {
+  margin: var(--space-4) 0 0;
+  font-size: 12px;
+}
+.about-dialog dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-8) var(--space-16);
+  margin: var(--space-24) 0;
+  font-size: 12px;
+}
+.about-dialog dt {
+  color: var(--muted);
+}
+.about-dialog dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .file-load-state {
   width: 100%;
   display: flex;

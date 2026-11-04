@@ -1,6 +1,6 @@
 {
   "name": "owlet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "private": true,
   "description": "A focused reader and editor for agent work, locally or over SSH",

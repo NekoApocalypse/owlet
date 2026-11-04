@@ -18,6 +18,32 @@ const { execFileSync } = require("node:child_process");
   if (!/^\d+\.\d+\.\d+$/.test(packageVersion))
     throw new Error("Expected a numeric major.minor.patch release version");
   const [major, minor, patch] = packageVersion.split(".").map(Number);
+  const owletBuild = {
+    label: process.env.OWLET_BUILD_LABEL || "Portable build",
+    commit: null,
+    dirty: false,
+    builtAt: new Date().toISOString(),
+  };
+  try {
+    owletBuild.commit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    owletBuild.dirty = !!execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=normal"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
+  } catch {
+    owletBuild.label = process.env.OWLET_BUILD_LABEL || "Source archive build";
+  }
   if (!fs.existsSync(path.join(root, "dist", "index.html")))
     throw new Error("Run npm run build first");
   const runtime = path.dirname(require("electron"));
@@ -87,6 +113,7 @@ const { execFileSync } = require("node:child_process");
         name: "owlet",
         productName: "Owlet",
         version: packageVersion,
+        owletBuild,
         license: require("../package.json").license,
         main: "electron/main.cjs",
       },

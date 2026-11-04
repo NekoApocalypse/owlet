@@ -38,6 +38,18 @@ export type Document = RemoteFile & {
   missing?: boolean;
   lineEnding?: string;
 };
+export type AboutInfo = {
+  version: string;
+  build: {
+    label: string;
+    commit: string | null;
+    dirty: boolean;
+    builtAt: string | null;
+  };
+  platform: string;
+  arch: string;
+  runtime: { electron: string; chromium: string; node: string };
+};
 export type Group = { id: number; tabs: string[]; active?: string };
 export type Layout =
   | { kind: "group"; group: Group }
@@ -67,6 +79,7 @@ export type TerminalSession = {
 declare global {
   interface Window {
     lwr: {
+      about(): Promise<AboutInfo>;
       droppedPaths(files: File[]): string[];
       importFiles(args: {
         directory: string;
