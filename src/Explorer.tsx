@@ -495,7 +495,16 @@ export default function Explorer({
           </button>
         )}
         {listing.entries.length === 0 && (
-          <p className="tree-hint">Empty directory</p>
+          <div
+            className="tree-placeholder"
+            style={{
+              paddingLeft: `calc(var(--space-8) + ${depth} * var(--space-12))`,
+            }}
+          >
+            <span className="tree-spacer" aria-hidden="true" />
+            <span className="tree-placeholder-icon" aria-hidden="true" />
+            <span>Empty folder</span>
+          </div>
         )}
       </>
     );

@@ -301,7 +301,8 @@ input {
   min-height: 0;
   padding: var(--space-2) 0;
 }
-.tree-row {
+.tree-row,
+.tree-placeholder {
   display: flex;
   width: 100%;
   gap: var(--space-4);
@@ -316,7 +317,8 @@ input {
   text-align: left;
   font-size: 12px;
 }
-.tree-row span:not(.tree-spacer) {
+.tree-row span:not(.tree-spacer),
+.tree-placeholder span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -331,6 +333,15 @@ input {
 }
 .tree-row:hover {
   background: #00346e;
+}
+.tree-placeholder {
+  align-items: center;
+  border-left: 2px solid transparent;
+  color: #9dadce;
+}
+.tree-placeholder-icon {
+  width: 15px;
+  flex-shrink: 0;
 }
 .tree-spacer {
   width: 13px;
