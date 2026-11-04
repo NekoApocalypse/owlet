@@ -906,7 +906,7 @@ input {
   overflow-wrap: anywhere;
 }
 .markdown-preview > * {
-  max-width: 900px;
+  max-width: var(--preview-max-width, 900px);
   margin-left: auto;
   margin-right: auto;
 }
@@ -1932,6 +1932,11 @@ input {
   width: 100%;
   padding: var(--space-16) var(--space-24);
 }
+.settings-content {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
 .settings-search {
   display: flex;
   align-items: center;
@@ -1939,7 +1944,7 @@ input {
   border: 1px solid var(--line);
   background: #001733;
   padding: 0 var(--space-8);
-  max-width: 800px;
+  border-radius: 3px;
 }
 .settings-search input {
   flex: 1;
@@ -1966,7 +1971,8 @@ input {
 .settings-view h2 {
   font-size: 14px;
   font-weight: 600;
-  margin: var(--space-16) 0 var(--space-4);
+  color: var(--accent);
+  margin: var(--space-24) 0 var(--space-8);
 }
 .setting-row {
   display: flex;
@@ -1974,8 +1980,7 @@ input {
   justify-content: space-between;
   align-items: center;
   padding: var(--space-12) 0;
-  border-bottom: 1px solid #ffffff0c;
-  max-width: 800px;
+  border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
 .setting-description {
@@ -1988,7 +1993,7 @@ input {
 .setting-description code {
   display: block;
   color: #a7b7d4;
-  font-size: 10px;
+  font-size: 11px;
   margin-top: var(--space-2);
 }
 .setting-description p,

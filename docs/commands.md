@@ -173,6 +173,12 @@ Cut/Paste change only the unsaved source buffer and remain undoable. They reject
 focused or active after a tab/Explorer click. Source editors, terminals and modal inputs retain their own shortcuts.
 Ctrl+wheel inside a preview uses the same shared zoom commands.
 
+Markdown preview maximum width is `preview.maxWidth`: an integer from 0 to 10000 CSS pixels, default 900.
+Use 0 to fill the pane. Set it in Settings → Markdown preview → Maximum width, or with
+`settings.update({key: "preview.maxWidth", value: 1100})` followed by `settings.save`.
+Saved changes apply to all Markdown previews in local and SSH windows; narrower panes still fit their available width.
+The width scales with preview zoom. Reset removes the override and restores 900 pixels.
+
 Settings JSON can also be edited via `editor.setText` and inspected through `file.inspect`. Unknown keys/comments survive
 individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you
 to finish unsaved Settings edits first so a shortcut cannot silently save unrelated edits. Direct text entry and settings

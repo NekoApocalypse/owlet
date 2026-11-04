@@ -57,6 +57,14 @@
     "max": 3,
     "step": 0.05
   },
+  "preview.maxWidth": {
+    "group": "Markdown preview",
+    "label": "Maximum width",
+    "description": "Maximum Markdown content width in pixels at 100% preview zoom. Use 0 to fill the pane.",
+    "default": 900,
+    "min": 0,
+    "max": 10000
+  },
   "markdown.defaultView": {
     "group": "Markdown preview",
     "label": "Default view",

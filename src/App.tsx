@@ -4392,6 +4392,9 @@ export default function App() {
           "--preview-font-size": `${settings["preview.fontSize"]}px`,
           "--preview-font-family": settings["preview.fontFamily"],
           "--preview-line-height": settings["preview.lineHeight"],
+          "--preview-max-width": settings["preview.maxWidth"]
+            ? `${settings["preview.maxWidth"]}px`
+            : "none",
         } as React.CSSProperties
       }
     >
