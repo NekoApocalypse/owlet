@@ -32,9 +32,23 @@ export type Document = RemoteFile & {
   image?: string;
   pdf?: string;
   unsupported?: string;
+  loading?: boolean;
+  loadError?: string;
   conflict?: RemoteFile;
   missing?: boolean;
   lineEnding?: string;
+};
+export type AboutInfo = {
+  version: string;
+  build: {
+    label: string;
+    commit: string | null;
+    dirty: boolean;
+    builtAt: string | null;
+  };
+  platform: string;
+  arch: string;
+  runtime: { electron: string; chromium: string; node: string };
 };
 export type Group = { id: number; tabs: string[]; active?: string };
 export type Layout =
@@ -65,6 +79,7 @@ export type TerminalSession = {
 declare global {
   interface Window {
     lwr: {
+      about(): Promise<AboutInfo>;
       droppedPaths(files: File[]): string[];
       importFiles(args: {
         directory: string;
@@ -136,6 +151,7 @@ export const dirname = (path: string) => {
 export const isMarkdown = (path: string) =>
   /\.(md|markdown|mdown)$/i.test(path);
 export const isPdf = (path: string) => /\.pdf$/i.test(path);
+export const isHtml = (path: string) => /\.html?$/i.test(path);
 export const isImage = (path: string) =>
   /\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(path);
 export function resolvePath(base: string, relative: string) {

@@ -5,6 +5,7 @@ function subscribe(channel, callback) {
   return () => ipcRenderer.removeListener(channel, listener);
 }
 contextBridge.exposeInMainWorld("lwr", {
+  about: () => ipcRenderer.invoke("about"),
   droppedPaths: (files) =>
     files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
   importFiles: (args) => ipcRenderer.invoke("files-import", args),

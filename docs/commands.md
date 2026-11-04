@@ -42,6 +42,30 @@ terminal, tab, folder, connection, and resize controls now dispatch through the 
 
 ## Interaction boundary
 
+**File → About Owlet** invokes `help.about`. `help.about({readOnly: true})` returns version, build label,
+source commit, modified-source flag, build time, platform/architecture and runtime versions without
+opening the dialog. `help.copyVersion` copies the same diagnostic fields without workspace paths,
+SSH targets or user settings. The GitHub button uses `link.openExternal`. Metadata belongs to the
+running package, so an older open window keeps reporting its own build after a launcher update.
+Packaging records this identity automatically; `OWLET_BUILD_LABEL` optionally names a release or review
+build (for example, `Release` or `PR #8`). Source-archive and development runs disclose missing metadata.
+
+File opening commits a tab, active selection and loading placeholder before reading its bytes.
+`file.open({path, group?})` still resolves when the read finishes; UI callers need not wait to show progress.
+`file.inspect` and `workspace.state().documents` report `loading` and `loadError`. Pending files cannot
+be edited or saved. `file.retry({path?, group?})` retries a failed read through the same opening path.
+Finishing a read never changes the active tab or reopens a closed tab.
+
+`html.source`, `html.preview`, `html.both`, `html.toggle`, and `html.refresh` accept optional `path` and
+`group` arguments targeting an open HTML tab. The toolbar uses these same commands. HTML defaults to
+preview; Both renders the unsaved source buffer. `html.refresh` reloads referenced resources without
+discarding source edits. `markdown.resize({path, group, ratio})` also sizes HTML source/preview splits.
+Static HTML supports inline and workspace-relative CSS (including bounded imports), raster/SVG images,
+and in-document anchors. Scripts, forms, nested frames, external resources and navigation are disabled
+in an opaque sandbox. No dev server is started. Resource loads are capped at 64 requests and 24 MiB of
+returned text/data URLs per render; stylesheet imports have a depth limit of four. Web fonts, PDF/Markdown
+find controls and application shortcuts inside the HTML iframe are not supported in this first viewer.
+
 `project.color.set({color?: "#RRGGBB", revision?: string | null})` opens the window-color picker when
 called without a color. Its saturation/brightness square, hue slider, HSB/HEX fields and default palette
 edit a local draft with live title/status-bar preview. Save uses this same command with the revision

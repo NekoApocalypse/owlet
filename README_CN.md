@@ -21,7 +21,7 @@ Developers rarely write code by hand anymore. Agents write the code, while human
 
 ## 快速开始
 
-**Windows 便携版：**[下载 v0.2.0](https://github.com/NekoApocalypse/owlet/releases/download/v0.2.0/Owlet-v0.2.0-windows-x64.zip)，解压完整文件夹后运行 `Owlet.exe`，无需安装 Node.js。
+**Windows 便携版：**[下载 v0.3.0](https://github.com/NekoApocalypse/owlet/releases/download/v0.3.0/Owlet-v0.3.0-windows-x64.zip)，解压完整文件夹后运行 `Owlet.exe`，无需安装 Node.js。
 
 1. **推荐方式：直接交给你的 Agent。** 把本仓库地址丢给你常用的 Coding Agent（Claude Code、Codex、Antigravity、OpenCode 等），让它直接构建并启动 Owlet。
 

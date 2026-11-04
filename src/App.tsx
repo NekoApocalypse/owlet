@@ -64,11 +64,13 @@ import {
 } from "./previewFindCommands";
 import type { RecentWorkspace, TerminalSession } from "./types";
 import { useProjectAppearance } from "./projectAppearance";
+import { useAbout } from "./About";
 import {
   basename,
   dirname,
   isImage,
   isPdf,
+  isHtml,
   isMarkdown,
   resolvePath,
   type ConnectionState,
@@ -86,6 +88,7 @@ import {
 } from "./layout";
 const Preview = lazy(() => import("./Preview"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
+const HtmlPreview = lazy(() => import("./HtmlPreview"));
 const TerminalPane = lazy(() => import("./TerminalPane"));
 const owletLogo = new URL("../assets/icon.png", import.meta.url).href;
 let nextGroup = 2,
@@ -455,11 +458,29 @@ export default function App() {
   }
   async function openFile(path: string, group = groupRef.current) {
     if (path === SETTINGS_PATH) return openSettings("preview", group);
+    if (!groups(layoutRef.current).some((g) => g.id === group))
+      throw new Error("Choose an existing tab group.");
     if (docsRef.current[path]) {
       if (docsRef.current[path].unsupported) setSidebar(true);
       activate(path, group);
-      return;
+      return opening.current.get(path);
     }
+    const placeholder: Document = {
+      path,
+      text: "",
+      saved: "",
+      revision: "",
+      stamp: "",
+      loading: true,
+      mode: isMarkdown(path)
+        ? (settingsRef.current["markdown.defaultView"] as Document["mode"])
+        : isImage(path) || isPdf(path) || isHtml(path)
+          ? "preview"
+          : "source",
+    };
+    docsRef.current = { ...docsRef.current, [path]: placeholder };
+    setDocuments(docsRef.current);
+    activate(path, group);
     let pending = opening.current.get(path);
     if (!pending) {
       pending = (async () => {
@@ -509,7 +530,9 @@ export default function App() {
                 ? (settingsRef.current[
                     "markdown.defaultView"
                   ] as Document["mode"])
-                : "source",
+                : isHtml(path)
+                  ? "preview"
+                  : "source",
             };
           }
           return document;
@@ -525,20 +548,35 @@ export default function App() {
               mode: "preview",
               unsupported: reason,
             } as Document;
-          report(error);
-          return undefined;
+          if (docsRef.current[path] === placeholder) report(error);
+          return {
+            ...placeholder,
+            loading: false,
+            loadError: String(error).replace(/^Error: /, ""),
+          };
         } finally {
-          markBusy(path, false);
-          opening.current.delete(path);
+          if (opening.current.get(path) === pending) {
+            markBusy(path, false);
+            opening.current.delete(path);
+          }
         }
       })();
       opening.current.set(path, pending);
     }
     const document = await pending;
-    if (document) {
-      setDocuments((previous) => ({ ...previous, [path]: document }));
-      if (document.unsupported) setSidebar(true);
-      activate(path, group);
+    // Completion fills only this pending tab. Never steal focus or resurrect a
+    // closed tab; a later reopen owns a different placeholder/request.
+    if (document && docsRef.current[path] === placeholder) {
+      docsRef.current = { ...docsRef.current, [path]: document };
+      setDocuments(docsRef.current);
+      if (
+        document.unsupported &&
+        groups(layoutRef.current).find((g) => g.id === groupRef.current)
+          ?.active === path
+      ) {
+        setSidebar(true);
+        setExplorerActivation((value) => value + 1);
+      }
     }
   }
   function dismissUnsupported(keepFocused = false) {
@@ -826,7 +864,15 @@ export default function App() {
     replacementRevision?: string,
   ): Promise<boolean> {
     const doc = docsRef.current[path];
-    if (!doc || doc.image || doc.pdf || doc.unsupported) return false;
+    if (
+      !doc ||
+      doc.image ||
+      doc.pdf ||
+      doc.unsupported ||
+      doc.loading ||
+      doc.loadError
+    )
+      return false;
     if (doc.text === doc.saved && !replacementRevision) return true;
     if (saving.current.has(path)) return false;
     saving.current.add(path);
@@ -880,7 +926,14 @@ export default function App() {
     if (typeof discard !== "boolean")
       throw new Error("discard must be true or false.");
     const before = docsRef.current[path];
-    if (!before || before.image || before.pdf || before.unsupported)
+    if (
+      !before ||
+      before.image ||
+      before.pdf ||
+      before.unsupported ||
+      before.loading ||
+      before.loadError
+    )
       throw new Error("Open a text file first.");
     if (before.text !== before.saved && !discard)
       throw new Error(
@@ -965,13 +1018,15 @@ export default function App() {
     setLayout(result);
     if (!groups(result).some((group) => group.id === activeGroup))
       setActiveGroup(groups(result)[0].id);
-    if (!groups(result).some((group) => group.tabs.includes(path)))
-      setDocuments((previous) => {
-        const updated = { ...previous };
-        delete updated[path];
-        return updated;
-      });
-    else if (discard) patch(path, { text: docsRef.current[path]?.saved || "" });
+    if (!groups(result).some((group) => group.tabs.includes(path))) {
+      opening.current.delete(path);
+      markBusy(path, false);
+      const updated = { ...docsRef.current };
+      delete updated[path];
+      docsRef.current = updated;
+      setDocuments(updated);
+    } else if (discard)
+      patch(path, { text: docsRef.current[path]?.saved || "" });
   }
   function closeFile(path: string, groupId: number) {
     if (terminalsRef.current.some((item) => item.id === path)) {
@@ -1128,6 +1183,7 @@ export default function App() {
       createTerminal();
     }
   }, [root, connected]);
+  const about = useAbout(report);
   const appearance = useProjectAppearance(
     root,
     connection.target,
@@ -1137,6 +1193,7 @@ export default function App() {
   const { api: commandApi, execute } = useCommands(
     [
       ...appearance.commands,
+      ...about.commands,
       {
         id: "project.settings.open",
         title: "Project: Open .owlet/settings.json",
@@ -1870,6 +1927,25 @@ export default function App() {
               }),
       },
       {
+        id: "file.retry",
+        title: "File: Retry Loading",
+        enabled: connected && !!current?.loadError,
+        parameters: {
+          path: "Optional failed file path",
+          group: "Optional tab group ID",
+        },
+        run: (args) => {
+          const path = args.path || current?.path;
+          if (!path || !docsRef.current[path]?.loadError)
+            throw new Error("Choose a file that failed to load");
+          const next = { ...docsRef.current };
+          delete next[path];
+          docsRef.current = next;
+          setDocuments(next);
+          return openFile(path, args.group);
+        },
+      },
+      {
         id: "file.save",
         title: "File: Save",
         shortcut: "Ctrl+S / :w",
@@ -1878,6 +1954,8 @@ export default function App() {
           !current.image &&
           !current.pdf &&
           !current.unsupported &&
+          !current.loading &&
+          !current.loadError &&
           (connected || current.path === SETTINGS_PATH),
         run: (args) => saveFile(args.path || current!.path),
       },
@@ -1911,6 +1989,8 @@ export default function App() {
           !current.image &&
           !current.pdf &&
           !current.unsupported &&
+          !current.loading &&
+          !current.loadError &&
           (connected || current.path === SETTINGS_PATH),
         parameters: {
           path: "Optional open file path",
@@ -1928,6 +2008,8 @@ export default function App() {
           !current.image &&
           !current.pdf &&
           !current.unsupported &&
+          !current.loading &&
+          !current.loadError &&
           (connected || current.path === SETTINGS_PATH),
         run: () =>
           setPrompt({
@@ -2012,6 +2094,8 @@ export default function App() {
           !current.image &&
           !current.pdf &&
           !current.unsupported &&
+          !current.loading &&
+          !current.loadError &&
           vimMode &&
           current.mode !== "preview",
         parameters: {
@@ -2131,6 +2215,8 @@ export default function App() {
             image: !!doc.image,
             pdf: !!doc.pdf,
             unsupported: doc.unsupported,
+            loading: doc.loading,
+            loadError: doc.loadError,
             conflict: doc.conflict,
           };
           if (!args.readOnly)
@@ -2142,14 +2228,26 @@ export default function App() {
         id: "editor.setText",
         title: "Editor: Replace Buffer Text…",
         enabled:
-          !!current && !current.image && !current.pdf && !current.unsupported,
+          !!current &&
+          !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
+          !current.loading &&
+          !current.loadError,
         parameters: {
           path: "Optional open file path",
           text: "New unsaved buffer text; omit for a multiline editor",
         },
         run: (args) => {
           const doc = documents[args.path || current!.path];
-          if (!doc || doc.image || doc.pdf || doc.unsupported)
+          if (
+            !doc ||
+            doc.image ||
+            doc.pdf ||
+            doc.unsupported ||
+            doc.loading ||
+            doc.loadError
+          )
             throw new Error("Choose an open text file");
           const apply = (text: string) => {
             if (typeof text !== "string")
@@ -2168,11 +2266,12 @@ export default function App() {
       },
       {
         id: "markdown.resize",
-        title: "Markdown: Set Source / Preview Split…",
-        enabled: !!current && isMarkdown(current.path),
+        title: "Preview: Set Source / Preview Split…",
+        enabled:
+          !!current && (isMarkdown(current.path) || isHtml(current.path)),
         parameters: {
           group: "Optional tab group ID",
-          path: "Optional Markdown path",
+          path: "Optional Markdown or HTML path",
           ratio: "Source fraction, 0.08 to 0.92; omit for a percentage prompt",
         },
         run: (args) => {
@@ -2305,7 +2404,12 @@ export default function App() {
         id: `editor.${action}`,
         title: `Editor: ${{ find: "Find in File", findNext: "Find Next", findPrevious: "Find Previous", replaceNext: "Replace Next Match", replaceAll: "Replace All Matches", closeFind: "Close Find", undo: "Undo", redo: "Redo", selectAll: "Select All", focus: "Focus Source Editor" }[action]}`,
         enabled:
-          !!current && !current.image && !current.pdf && !current.unsupported,
+          !!current &&
+          !current.image &&
+          !current.pdf &&
+          !current.unsupported &&
+          !current.loading &&
+          !current.loadError,
         parameters: {
           search: "Optional search string",
           replace: "Optional replacement",
@@ -2336,6 +2440,8 @@ export default function App() {
             !doc.image &&
             !doc.pdf &&
             !doc.unsupported &&
+            !doc.loading &&
+            !doc.loadError &&
             (viewModes[`${group.id}:${doc.path}`] || doc.mode) !== "preview"
           );
         }),
@@ -2386,6 +2492,52 @@ export default function App() {
         run: (args: Record<string, any>) =>
           setMode(args.path || current!.path, mode, args.group),
       })),
+      ...(["source", "preview", "both", "toggle", "refresh"] as const).map(
+        (action) => ({
+          id: `html.${action}`,
+          title: `HTML: ${{ source: "Show Raw Source", preview: "Show Static Preview", both: "Show Source and Preview", toggle: "Toggle Preview / Raw Source", refresh: "Refresh Preview Resources" }[action]}`,
+          enabled:
+            !!current &&
+            isHtml(current.path) &&
+            !current.loading &&
+            !current.loadError,
+          parameters: {
+            path: "Optional open HTML file path",
+            group: "Optional tab group ID",
+          },
+          run: (args: Record<string, any>) => {
+            const group = groups(layoutRef.current).find(
+              (g) => g.id === (args.group ?? groupRef.current),
+            );
+            const path = args.path || group?.active;
+            const doc = path && docsRef.current[path];
+            if (
+              !group ||
+              !path ||
+              !group.tabs.includes(path) ||
+              !doc ||
+              !isHtml(path) ||
+              doc.loading ||
+              doc.loadError
+            )
+              throw new Error("Choose a loaded HTML tab");
+            if (action === "refresh") {
+              setRefresh((v) => v + 1);
+              return;
+            }
+            const mode = viewModes[`${group.id}:${path}`] || doc.mode;
+            setMode(
+              path,
+              action === "toggle"
+                ? mode === "preview"
+                  ? "source"
+                  : "preview"
+                : action,
+              group.id,
+            );
+          },
+        }),
+      ),
       {
         id: "markdown.toggle",
         title: "Markdown: Toggle Preview / Raw Source",
@@ -2699,6 +2851,8 @@ export default function App() {
               : null,
             documents: Object.values(documents).map((doc) => ({
               path: doc.path,
+              loading: !!doc.loading,
+              loadError: doc.loadError,
               dirty: doc.text !== doc.saved,
               conflict: !!doc.conflict,
               conflictRevision: doc.conflict?.revision,
@@ -3308,6 +3462,8 @@ export default function App() {
                 !!path &&
                 path !== SETTINGS_PATH &&
                 !!docsRef.current[path] &&
+                !docsRef.current[path].loading &&
+                !docsRef.current[path].loadError &&
                 !docsRef.current[path].unsupported,
             ),
         ),
@@ -3577,7 +3733,13 @@ export default function App() {
                     execute("tab.activate", { path, group: group.id })
                   }
                 >
-                  {item?.unsupported ? (
+                  {item?.loading ? (
+                    <RefreshCw
+                      size={15}
+                      className="file-loading-spinner"
+                      aria-label="Loading"
+                    />
+                  ) : item?.unsupported ? (
                     <AlertTriangle size={15} />
                   ) : terminalTab ? (
                     <TerminalSquare size={15} />
@@ -3712,60 +3874,87 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                {!doc.unsupported && isMarkdown(doc.path) && (
-                  <div className="mode-switch">
-                    {(["source", "preview", "both"] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        className={doc.mode === mode ? "chosen" : ""}
-                        title={mode === "both" ? "Source and preview" : mode}
-                        aria-label={
-                          mode === "both"
-                            ? "Source and preview"
-                            : mode === "source"
-                              ? "Show source"
-                              : "Show preview"
-                        }
-                        onClick={() =>
-                          execute(`markdown.${mode}`, {
-                            path: doc.path,
-                            group: group.id,
-                          })
-                        }
-                      >
-                        {mode === "source" ? (
-                          <Code2 size={13} />
-                        ) : mode === "preview" ? (
-                          <BookOpen size={13} />
-                        ) : (
-                          <Columns2 size={13} />
-                        )}
-                        <span>
-                          {mode === "both"
-                            ? "Both"
-                            : mode === "source"
-                              ? "Source"
-                              : "Preview"}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {!doc.image && !doc.pdf && !doc.unsupported && (
-                  <button
-                    title="Save (Ctrl+S)"
-                    aria-label="Save file"
-                    disabled={
-                      busy.has(doc.path) ||
-                      doc.text === doc.saved ||
-                      (doc.path !== SETTINGS_PATH &&
-                        connection.status !== "connected")
-                    }
-                    onClick={() => execute("file.save", { path: doc.path })}
-                  >
-                    <Save size={15} />
-                  </button>
-                )}
+                {!doc.unsupported &&
+                  !doc.loading &&
+                  !doc.loadError &&
+                  (isMarkdown(doc.path) || isHtml(doc.path)) && (
+                    <div className="mode-switch">
+                      {(["source", "preview", "both"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          className={doc.mode === mode ? "chosen" : ""}
+                          title={mode === "both" ? "Source and preview" : mode}
+                          aria-label={
+                            mode === "both"
+                              ? "Source and preview"
+                              : mode === "source"
+                                ? "Show source"
+                                : "Show preview"
+                          }
+                          onClick={() =>
+                            execute(
+                              `${isHtml(doc.path) ? "html" : "markdown"}.${mode}`,
+                              {
+                                path: doc.path,
+                                group: group.id,
+                              },
+                            )
+                          }
+                        >
+                          {mode === "source" ? (
+                            <Code2 size={13} />
+                          ) : mode === "preview" ? (
+                            <BookOpen size={13} />
+                          ) : (
+                            <Columns2 size={13} />
+                          )}
+                          <span>
+                            {mode === "both"
+                              ? "Both"
+                              : mode === "source"
+                                ? "Source"
+                                : "Preview"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                {isHtml(doc.path) &&
+                  !doc.loading &&
+                  !doc.loadError &&
+                  doc.mode !== "source" && (
+                    <button
+                      aria-label="Refresh HTML preview"
+                      title="Refresh HTML preview"
+                      onClick={() =>
+                        execute("html.refresh", {
+                          path: doc.path,
+                          group: group.id,
+                        })
+                      }
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  )}
+                {!doc.image &&
+                  !doc.pdf &&
+                  !doc.unsupported &&
+                  !doc.loading &&
+                  !doc.loadError && (
+                    <button
+                      title="Save (Ctrl+S)"
+                      aria-label="Save file"
+                      disabled={
+                        busy.has(doc.path) ||
+                        doc.text === doc.saved ||
+                        (doc.path !== SETTINGS_PATH &&
+                          connection.status !== "connected")
+                      }
+                      onClick={() => execute("file.save", { path: doc.path })}
+                    >
+                      <Save size={15} />
+                    </button>
+                  )}
               </div>
             </div>
             {doc.conflict && (
@@ -3785,7 +3974,29 @@ export default function App() {
               </div>
             )}
             <div className="document-body">
-              {doc.unsupported ? (
+              {doc.loading ? (
+                <div
+                  className="file-load-state"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <RefreshCw size={20} className="file-loading-spinner" />
+                  <span>Loading {basename(doc.path)}…</span>
+                </div>
+              ) : doc.loadError ? (
+                <div className="file-load-state" role="alert">
+                  <AlertTriangle size={24} />
+                  <h2>Could not load file</h2>
+                  <p>{doc.loadError}</p>
+                  <button
+                    onClick={() =>
+                      execute("file.retry", { path: doc.path, group: group.id })
+                    }
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : doc.unsupported ? (
                 <div className="unsupported-file" role="status">
                   <AlertTriangle size={28} />
                   <h2>Unsupported file</h2>
@@ -3823,7 +4034,8 @@ export default function App() {
                   onCommand={execute}
                   onUnavailable={(reason) => unsupportedPreview(doc, reason)}
                 />
-              ) : doc.mode === "both" && isMarkdown(doc.path) ? (
+              ) : doc.mode === "both" &&
+                (isMarkdown(doc.path) || isHtml(doc.path)) ? (
                 <SourcePreview
                   ratio={previewRatios[`${group.id}:${doc.path}`] ?? 0.5}
                   onResize={(ratio) =>
@@ -3870,41 +4082,60 @@ export default function App() {
                         <div className="loading">Preparing preview…</div>
                       }
                     >
-                      <Preview
-                        group={group.id}
-                        zoom={previewZoom}
-                        text={doc.text}
-                        path={doc.path}
-                        root={root}
-                        onOpen={(path) =>
-                          execute("file.open", { path, group: group.id })
-                        }
-                        onCommand={(id, args) =>
-                          execute(id, { ...args, group: group.id })
-                        }
-                        refresh={refresh}
-                      />
+                      {isHtml(doc.path) ? (
+                        <HtmlPreview
+                          text={doc.text}
+                          path={doc.path}
+                          root={root}
+                          refresh={refresh}
+                        />
+                      ) : (
+                        <Preview
+                          group={group.id}
+                          zoom={previewZoom}
+                          text={doc.text}
+                          path={doc.path}
+                          root={root}
+                          onOpen={(path) =>
+                            execute("file.open", { path, group: group.id })
+                          }
+                          onCommand={(id, args) =>
+                            execute(id, { ...args, group: group.id })
+                          }
+                          refresh={refresh}
+                        />
+                      )}
                     </Suspense>
                   }
                 />
-              ) : doc.mode === "preview" && isMarkdown(doc.path) ? (
+              ) : doc.mode === "preview" &&
+                (isMarkdown(doc.path) || isHtml(doc.path)) ? (
                 <Suspense
                   fallback={<div className="loading">Preparing preview…</div>}
                 >
-                  <Preview
-                    group={group.id}
-                    zoom={previewZoom}
-                    text={doc.text}
-                    path={doc.path}
-                    root={root}
-                    onOpen={(path) =>
-                      execute("file.open", { path, group: group.id })
-                    }
-                    onCommand={(id, args) =>
-                      execute(id, { ...args, group: group.id })
-                    }
-                    refresh={refresh}
-                  />
+                  {isHtml(doc.path) ? (
+                    <HtmlPreview
+                      text={doc.text}
+                      path={doc.path}
+                      root={root}
+                      refresh={refresh}
+                    />
+                  ) : (
+                    <Preview
+                      group={group.id}
+                      zoom={previewZoom}
+                      text={doc.text}
+                      path={doc.path}
+                      root={root}
+                      onOpen={(path) =>
+                        execute("file.open", { path, group: group.id })
+                      }
+                      onCommand={(id, args) =>
+                        execute(id, { ...args, group: group.id })
+                      }
+                      refresh={refresh}
+                    />
+                  )}
                 </Suspense>
               ) : (
                 <Editor
@@ -4618,6 +4849,7 @@ export default function App() {
         />
       )}
       {appearance.dialog}
+      {about.dialog}
       {sshInput && (
         <div className="modal-shade">
           <form
