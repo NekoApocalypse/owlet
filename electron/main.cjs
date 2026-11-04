@@ -42,6 +42,11 @@ const { RecentWorkspaces } = require("./recent.cjs");
 const recent = new RecentWorkspaces(
   path.join(preferencesPath, "recent-workspaces.json"),
 );
+const { CommandHistory } = require("./command-history.cjs");
+const commandHistory = new CommandHistory(
+  path.join(preferencesPath, "command-history.json"),
+);
+const { validateWindowState } = require("./window-state.cjs");
 const sessions = new Map();
 const windows = new Map();
 const terminals = new Map();
@@ -224,8 +229,21 @@ ipcMain.handle("about", (event) => {
 });
 ipcMain.handle("bootstrap", (event) => {
   trusted(event);
-  const { root, file, session } = windows.get(event.sender.id);
-  return { root, file, connection: session.state };
+  const { root, file, session, reloadState } = windows.get(event.sender.id);
+  return { root, file, reloadState, connection: session.state };
+});
+ipcMain.handle("command-history", (event, action, id) => {
+  trusted(event);
+  if (action === "list") return commandHistory.list();
+  const history =
+    action === "remember"
+      ? commandHistory.remember(id)
+      : action === "clear"
+        ? commandHistory.clear()
+        : null;
+  if (!history) throw new Error("Invalid history action");
+  sendAll("command-history-changed", history);
+  return history;
 });
 ipcMain.handle("connect", async (event) => {
   trusted(event);
@@ -566,10 +584,12 @@ ipcMain.handle("fullscreen", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   win.setFullScreen(!win.isFullScreen());
 });
-ipcMain.handle("reload", async (event) => {
+ipcMain.handle("reload", async (event, state) => {
   trusted(event);
   const win = BrowserWindow.fromWebContents(event.sender);
   const record = windows.get(event.sender.id);
+  const reloadState =
+    state === undefined ? undefined : validateWindowState(state);
   if (record.dirty) {
     const { response } = await dialog.showMessageBox(win, {
       type: "warning",
@@ -588,6 +608,8 @@ ipcMain.handle("reload", async (event) => {
       terminals.delete(terminal);
     }
   record.dirty = false;
+  record.reloadState = reloadState;
+  imageCache.clear();
   event.sender.reload();
   return true;
 });

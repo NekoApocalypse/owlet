@@ -186,6 +186,19 @@ search remain widget interactions; their submitted changes use the same commands
 
 ## Quick Open, files, and Vim
 
+`window.reload()` restores this window's tab order, active tabs/group, split layout, Markdown/HTML/Settings views,
+preview zoom and pane sizes. Files are read fresh; missing files stay open with Retry. The existing unsaved-change
+confirmation still applies, and active saves must finish first. Terminal names and panel/editor placement return with
+new shells in their configured starting directories; running processes and scrollback are not preserved. Temporary
+unsupported-file tabs are omitted. This is reload restoration, not workspace recovery after quitting the app.
+
+The palette stores up to 100 recently chosen command IDs in a persistent, deduplicated queue in the user profile.
+Choosing a command moves it to the front. Recent matches precede other matching results; unrelated commands remain
+filtered out. Buttons, shortcuts and agent/API calls use the same handlers without flooding this preference history.
+Arguments, file contents and terminal input are never recorded. `commands.recent({readOnly:true})` reads the queue
+(omit the argument to copy it);
+`commands.clearRecent()` clears it. Both are discoverable in the palette.
+
 | Action | Command and arguments |
 | --- | --- |
 | Fuzzy Quick Open / inspect results | `file.quickOpen({query?})` (Ctrl+P); `file.search({query, limit?})` returns `matches`, `loading`, `limited`, `errors`, `indexed`; omit query to open the picker |

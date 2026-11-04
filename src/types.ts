@@ -76,10 +76,30 @@ export type TerminalSession = {
   status: "starting" | "running" | "exited" | "disconnected" | "error";
   pty?: string;
 };
+export type ReloadState = {
+  version: 1;
+  layout: Layout;
+  activeGroup: number;
+  modes: Record<string, Document["mode"]>;
+  viewModes: Record<string, Document["mode"]>;
+  previewRatios: Record<string, number>;
+  previewZoom: number;
+  sidebar: boolean;
+  sidebarWidth: number;
+  terminalVisible: boolean;
+  terminalHeight: number;
+  terminals: Pick<TerminalSession, "id" | "name" | "path" | "location">[];
+  activeTerminal?: string;
+  terminalSerial: number;
+};
 declare global {
   interface Window {
     lwr: {
       about(): Promise<AboutInfo>;
+      commandHistory(): Promise<string[]>;
+      rememberCommand(id: string): Promise<string[]>;
+      clearCommandHistory(): Promise<string[]>;
+      onCommandHistory(fn: (ids: string[]) => void): () => void;
       droppedPaths(files: File[]): string[];
       importFiles(args: {
         directory: string;
@@ -98,6 +118,7 @@ declare global {
         root?: string;
         file?: string;
         connection: ConnectionState;
+        reloadState?: ReloadState;
       }>;
       connect(): Promise<ConnectionState>;
       disconnect(): Promise<void>;
@@ -128,7 +149,7 @@ declare global {
       onTerminal(fn: (event: TerminalEvent) => void): () => void;
       dirty(value: boolean): void;
       external(url: string): Promise<void>;
-      reload(): Promise<boolean>;
+      reload(state?: ReloadState): Promise<boolean>;
       closeWindow(): Promise<void>;
       zoom(direction: "in" | "out" | "reset"): Promise<void>;
       fullscreen(): Promise<void>;

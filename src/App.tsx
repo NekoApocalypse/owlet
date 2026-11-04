@@ -78,6 +78,7 @@ import {
   type Group,
   type Layout,
   type RemoteFile,
+  type ReloadState,
 } from "./types";
 import {
   groups,
@@ -284,6 +285,7 @@ export default function App() {
     width: number;
   } | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(true);
+  const [restoringConnection, setRestoringConnection] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>(
     [],
@@ -428,6 +430,7 @@ export default function App() {
   async function openSettings(
     mode: "source" | "preview" = "preview",
     group = groupRef.current,
+    background = false,
   ) {
     if (
       !Number.isInteger(group) ||
@@ -436,13 +439,15 @@ export default function App() {
       throw new Error("Choose an existing tab group.");
     if (!docsRef.current[SETTINGS_PATH]) {
       const file = await readDocument(SETTINGS_PATH);
-      const doc: Document = { ...file, saved: file.text, mode: "preview" };
+      const doc: Document = { ...file, saved: file.text, mode };
       const next = { ...docsRef.current, [SETTINGS_PATH]: doc };
       docsRef.current = next;
       setDocuments(next);
     }
-    activate(SETTINGS_PATH, group);
-    setMode(SETTINGS_PATH, mode, group);
+    if (!background) {
+      activate(SETTINGS_PATH, group);
+      setMode(SETTINGS_PATH, mode, group);
+    }
   }
   function applySettings(file: RemoteFile) {
     const values = resolveSettings(file.text);
@@ -456,13 +461,24 @@ export default function App() {
     const doc = docsRef.current[SETTINGS_PATH];
     patch(SETTINGS_PATH, { text: editSetting(doc.text, key, value) });
   }
-  async function openFile(path: string, group = groupRef.current) {
-    if (path === SETTINGS_PATH) return openSettings("preview", group);
+  async function openFile(
+    path: string,
+    group = groupRef.current,
+    restoreMode?: Document["mode"],
+    ready?: Promise<unknown>,
+  ) {
+    const background = restoreMode !== undefined;
+    if (path === SETTINGS_PATH)
+      return openSettings(
+        restoreMode === "source" ? "source" : "preview",
+        group,
+        background,
+      );
     if (!groups(layoutRef.current).some((g) => g.id === group))
       throw new Error("Choose an existing tab group.");
     if (docsRef.current[path]) {
       if (docsRef.current[path].unsupported) setSidebar(true);
-      activate(path, group);
+      if (!background) activate(path, group);
       return opening.current.get(path);
     }
     const placeholder: Document = {
@@ -472,20 +488,23 @@ export default function App() {
       revision: "",
       stamp: "",
       loading: true,
-      mode: isMarkdown(path)
-        ? (settingsRef.current["markdown.defaultView"] as Document["mode"])
-        : isImage(path) || isPdf(path) || isHtml(path)
-          ? "preview"
-          : "source",
+      mode:
+        restoreMode ||
+        (isMarkdown(path)
+          ? (settingsRef.current["markdown.defaultView"] as Document["mode"])
+          : isImage(path) || isPdf(path) || isHtml(path)
+            ? "preview"
+            : "source"),
     };
     docsRef.current = { ...docsRef.current, [path]: placeholder };
     setDocuments(docsRef.current);
-    activate(path, group);
+    if (!background) activate(path, group);
     let pending = opening.current.get(path);
     if (!pending) {
       pending = (async () => {
         markBusy(path, true);
         try {
+          if (ready) await ready;
           let document: Document;
           if (isPdf(path)) {
             const result = await window.lwr.remote<{
@@ -526,13 +545,15 @@ export default function App() {
               text,
               saved: text,
               lineEnding: result.text.includes("\r\n") ? "\r\n" : "\n",
-              mode: isMarkdown(path)
-                ? (settingsRef.current[
-                    "markdown.defaultView"
-                  ] as Document["mode"])
-                : isHtml(path)
-                  ? "preview"
-                  : "source",
+              mode:
+                restoreMode ||
+                (isMarkdown(path)
+                  ? (settingsRef.current[
+                      "markdown.defaultView"
+                    ] as Document["mode"])
+                  : isHtml(path)
+                    ? "preview"
+                    : "source"),
             };
           }
           return document;
@@ -1079,6 +1100,97 @@ export default function App() {
     };
     next();
   }
+  function reloadWindow() {
+    if (saving.current.size)
+      throw new Error("Wait for saves to finish before reloading");
+    const restoredLayout = groups(layoutRef.current).reduce(
+      (next, group) =>
+        mapGroup(next, group.id, (g) => {
+          const tabs = g.tabs.filter(
+            (path) => !docsRef.current[path]?.unsupported,
+          );
+          return {
+            ...g,
+            tabs,
+            active: g.active && tabs.includes(g.active) ? g.active : tabs[0],
+          };
+        }),
+      layoutRef.current,
+    );
+    return window.lwr.reload({
+      version: 1,
+      layout: restoredLayout,
+      activeGroup: groupRef.current,
+      modes: Object.fromEntries(
+        Object.values(docsRef.current).map((doc) => [doc.path, doc.mode]),
+      ),
+      viewModes,
+      previewRatios,
+      previewZoom,
+      sidebar,
+      sidebarWidth,
+      terminalVisible,
+      terminalHeight,
+      terminals: terminalsRef.current.map(({ id, name, path, location }) => ({
+        id,
+        name,
+        path,
+        location,
+      })),
+      activeTerminal,
+      terminalSerial: terminalSerial.current,
+    });
+  }
+  function restoreWindow(state: ReloadState, ready: Promise<unknown>) {
+    layoutRef.current = state.layout;
+    groupRef.current = state.activeGroup;
+    setLayout(state.layout);
+    setActiveGroup(state.activeGroup);
+    setViewModes(state.viewModes);
+    setPreviewRatios(state.previewRatios);
+    setPreviewZoom(state.previewZoom);
+    setSidebar(state.sidebar);
+    setSidebarWidth(state.sidebarWidth);
+    setTerminalHeight(state.terminalHeight);
+    setTerminalVisible(state.terminalVisible);
+    terminalSerial.current = state.terminalSerial;
+    const terminals = state.terminals.map((item) => ({
+      ...item,
+      status: "starting" as const,
+      restart: 0,
+    }));
+    terminalsRef.current = terminals;
+    setTerminalSessions(terminals);
+    setActiveTerminal(state.activeTerminal);
+    const walk = (node: Layout) => {
+      if (node.kind === "group")
+        nextGroup = Math.max(nextGroup, node.group.id + 1);
+      else {
+        nextSplit = Math.max(nextSplit, node.id + 1);
+        walk(node.first);
+        walk(node.second);
+      }
+    };
+    walk(state.layout);
+    const files = new Map<string, number>();
+    // Active documents start loading first. Every openFile call creates its
+    // loading tab synchronously; completions do not change focus or tab order.
+    const ordered = groups(state.layout).sort(
+      (a, b) =>
+        Number(b.id === state.activeGroup) - Number(a.id === state.activeGroup),
+    );
+    for (const group of ordered)
+      for (const path of [group.active, ...group.tabs])
+        if (path && !files.has(path) && !terminals.some((t) => t.id === path))
+          files.set(path, group.id);
+    for (const [path, group] of files)
+      void openFile(
+        path,
+        group,
+        state.modes[path] || (path === SETTINGS_PATH ? "preview" : "source"),
+        ready,
+      ).catch(report);
+  }
   function splitGroup(group: Group, axis: "row" | "column", before = false) {
     const id = nextGroup++;
     const terminal = terminalsRef.current.some(
@@ -1250,7 +1362,12 @@ export default function App() {
     connected,
     report,
   );
-  const { api: commandApi, execute } = useCommands(
+  const {
+    api: commandApi,
+    execute,
+    executePalette,
+    history: commandHistory,
+  } = useCommands(
     [
       ...appearance.commands,
       ...about.commands,
@@ -1289,6 +1406,30 @@ export default function App() {
         title: "Show Command Palette",
         shortcut: "Ctrl+Shift+P / F1",
         run: () => setPaletteVisible(true),
+      },
+      {
+        id: "commands.recent",
+        title: "Preferences: Copy Recent Commands",
+        keywords: ["history", "command palette"],
+        parameters: {
+          readOnly: "true returns the command IDs without copying",
+        },
+        run: async (args) => {
+          const history = await window.lwr.commandHistory();
+          if (!args.readOnly) {
+            await navigator.clipboard.writeText(
+              JSON.stringify(history, null, 2),
+            );
+            setMessage("Copied recent commands");
+          }
+          return history;
+        },
+      },
+      {
+        id: "commands.clearRecent",
+        title: "Preferences: Clear Recent Commands",
+        keywords: ["history", "command palette"],
+        run: () => window.lwr.clearCommandHistory(),
       },
       {
         id: "diagram.open",
@@ -1580,7 +1721,7 @@ export default function App() {
         id: "window.reload",
         title: "Window: Reload Window",
         shortcut: "Ctrl+R",
-        run: () => window.lwr.reload(),
+        run: reloadWindow,
       },
       {
         id: "window.close",
@@ -3312,6 +3453,7 @@ export default function App() {
         );
       setConnection(state);
       if (state.status === "connected") {
+        setRestoringConnection(false);
         if (state.kind === "ssh" && initialRoot.current === undefined)
           setRoot((current) => current || state.home || "/");
         setRefresh((value) => value + 1);
@@ -3320,6 +3462,10 @@ export default function App() {
     });
     window.lwr.bootstrap().then(async (config) => {
       initialRoot.current = config.root;
+      if (config.reloadState) {
+        initialTerminal.current = true;
+        setRestoringConnection(true);
+      }
       setConnection(config.connection);
       // Retain the requested workspace even when the initial SSH attempt fails.
       if (config.root !== undefined) setRoot(config.root);
@@ -3334,12 +3480,15 @@ export default function App() {
       } catch (error) {
         report(error);
       }
+      const ready = window.lwr.connect();
+      if (config.reloadState) restoreWindow(config.reloadState, ready);
       try {
-        const state = await window.lwr.connect();
+        const state = await ready;
+        setRestoringConnection(false);
         setConnection(state);
         setRoot(config.root ?? state.home ?? "/");
         if (config.root === "") setTerminalVisible(false);
-        if (config.file) void openFile(config.file, 1);
+        if (!config.reloadState && config.file) void openFile(config.file, 1);
       } catch (error) {
         report(error);
       }
@@ -4777,7 +4926,7 @@ export default function App() {
             settings={settings}
             key={item.id}
             id={item.id}
-            root={item.path}
+            root={restoringConnection ? "" : item.path}
             connection={connection}
             restart={item.restart}
             destination={"terminal-slot-" + item.id}
@@ -4915,8 +5064,9 @@ export default function App() {
       {paletteVisible && (
         <CommandPalette
           commands={commandApi.list()}
+          history={commandHistory}
           onClose={() => setPaletteVisible(false)}
-          onExecute={execute}
+          onExecute={executePalette}
         />
       )}
       {appearance.dialog}
