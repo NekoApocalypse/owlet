@@ -53,6 +53,21 @@ export default function Explorer({
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
   const tree = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const viewport = tree.current;
+    if (!viewport) return;
+    let idle: ReturnType<typeof setTimeout>;
+    const showScrollbar = () => {
+      viewport.dataset.scrolling = "true";
+      clearTimeout(idle);
+      idle = setTimeout(() => delete viewport.dataset.scrolling, 800);
+    };
+    viewport.addEventListener("scroll", showScrollbar, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", showScrollbar);
+      clearTimeout(idle);
+    };
+  }, []);
   const [reveal, setReveal] = useState<{
     path: string;
     attempted: Set<string>;

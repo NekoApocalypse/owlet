@@ -262,8 +262,6 @@ input {
 .sidebar-wrap {
   min-width: 160px;
   flex-shrink: 0;
-  /* Reserve a non-draggable resize gutter outside rows and the scrollbar. */
-  padding-right: var(--space-8);
   background: #001c40;
 }
 .explorer {
@@ -295,11 +293,39 @@ input {
   letter-spacing: 0.6px;
   text-transform: uppercase;
 }
+@property --explorer-scrollbar-color {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
 .tree {
   overflow: auto;
   flex: 1;
   min-height: 0;
   padding: var(--space-2) 0;
+  --explorer-scrollbar-color: transparent;
+  transition: --explorer-scrollbar-color 160ms ease;
+}
+.tree:hover,
+.tree[data-scrolling="true"] {
+  --explorer-scrollbar-color: #404f7d;
+}
+.tree::-webkit-scrollbar-thumb {
+  background: var(--explorer-scrollbar-color);
+  border: 0;
+  border-radius: 0;
+}
+.tree::-webkit-scrollbar-thumb:hover,
+.tree::-webkit-scrollbar-thumb:active {
+  background: #64769e;
+}
+.tree::-webkit-scrollbar-corner {
+  background: transparent;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree {
+    transition: none;
+  }
 }
 .tree-row,
 .tree-placeholder {
@@ -388,7 +414,8 @@ input {
 .sidebar-handle {
   position: relative;
   width: 12px;
-  margin-left: calc(-1 * var(--space-8));
+  /* Keep the resize hit area on the editor side, clear of the scrollbar. */
+  margin-right: calc(-1 * var(--space-8));
   cursor: col-resize;
   flex-shrink: 0;
   z-index: 4;
@@ -400,13 +427,14 @@ input {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 0;
-  width: 4px;
+  left: 0;
+  width: 1px;
   background: #404f7d;
   pointer-events: none;
 }
 .sidebar-handle:hover::after,
 .sidebar-handle:active::after {
+  width: 4px;
   background: var(--project-color, #bbdaff);
 }
 .split-handle:hover,

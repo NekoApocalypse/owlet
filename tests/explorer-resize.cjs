@@ -92,12 +92,87 @@ let app;
     tree.x + tree.width <= h.x,
     "Scrollbar must remain outside the resize hit area",
   );
+  const sidebar = await page.locator(".sidebar-wrap").boundingBox();
+  assert.equal(
+    tree.x + tree.width,
+    sidebar.x + sidebar.width,
+    "Explorer scrollbar must reach the sidebar edge without an inset gutter",
+  );
+  const thumbColor = () =>
+    page
+      .locator(".tree")
+      .evaluate((el) =>
+        getComputedStyle(el)
+          .getPropertyValue("--explorer-scrollbar-color")
+          .trim(),
+      );
+  const waitThumb = async (color) => {
+    await page
+      .waitForFunction(
+        (color) =>
+          getComputedStyle(document.querySelector(".tree"))
+            .getPropertyValue("--explorer-scrollbar-color")
+            .trim() === color,
+        color,
+      )
+      .catch(async (error) => {
+        console.error(
+          await page.locator(".tree").evaluate((el) => ({
+            hover: el.matches(":hover"),
+            color: getComputedStyle(el).getPropertyValue(
+              "--explorer-scrollbar-color",
+            ),
+            thumb: getComputedStyle(el, "::-webkit-scrollbar-thumb")
+              .backgroundColor,
+          })),
+        );
+        await page.screenshot({
+          path: path.join(base, "scrollbar-failure.png"),
+        });
+        throw error;
+      });
+    assert.equal(await thumbColor(), color);
+  };
+  await page.mouse.move(h.x + 100, tree.y + 20);
+  await waitThumb("rgba(0, 0, 0, 0)");
+  const idleWidth = await page
+    .locator(".tree")
+    .evaluate((el) => el.clientWidth);
+  await page.screenshot({ path: path.join(base, "scrollbar-idle.png") });
   await page.locator(".tree").hover();
+  await waitThumb("rgb(64, 79, 125)");
+  assert.equal(
+    await page.locator(".tree").evaluate((el) => el.clientWidth),
+    idleWidth,
+    "Showing the thumb must not shift the file rows",
+  );
+  await page.screenshot({ path: path.join(base, "scrollbar-hover.png") });
   await page.mouse.wheel(0, 450);
   await page.waitForFunction(
     () => document.querySelector(".tree").scrollTop > 0,
   );
   assert.equal((await state()).sidebar.width, 280);
+  await page.mouse.move(h.x + 100, tree.y + 20);
+  await waitThumb("rgba(0, 0, 0, 0)");
+  // Programmatic reveals/keyboard scrolling should show the thumb even without hover.
+  await page.locator(".tree").evaluate((el) => {
+    el.scrollTop += 200;
+  });
+  await waitThumb("rgb(64, 79, 125)");
+  await waitThumb("rgba(0, 0, 0, 0)");
+  await page.locator(".tree").evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  // The thumb itself remains draggable and does not enter the resize deadzone.
+  await page.mouse.move(tree.x + tree.width - 4, tree.y + 15);
+  await page.mouse.down();
+  await page.mouse.move(tree.x + tree.width - 4, tree.y + 150, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForFunction(
+    () => document.querySelector(".tree").scrollTop > 0,
+  );
+  assert.equal((await state()).sidebar.width, 280);
+  assert.equal(await page.evaluate(() => window.__fileDrags), 0);
   await page.locator(".tree").evaluate((el) => {
     el.scrollTop = 0;
   });
@@ -128,6 +203,8 @@ let app;
           "No file drag during resize",
           "No initial width jump; capture and release",
           "Scrollbar remains separate",
+          "Flush scrollbar, hover/scroll visibility and idle fade without layout shift",
+          "Native scrollbar dragging does not resize or drag files",
           "Normal file drag still moves through confirmation",
         ],
       },
