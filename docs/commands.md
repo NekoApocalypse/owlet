@@ -141,6 +141,10 @@ work when the PDF page has focus; Ctrl+wheel zooms the hovered PDF pane. These a
 Tab middle-click uses `file.close({path, group})`, preserving unsaved-buffer and terminal-close confirmation.
 Tabs have their own menu. `group.splitRight({group?, path?})` and `group.splitLeft({group?, path?})` split the targeted tab;
 `tab.reveal({group?, path?})` shows its Explorer row, opening the sidebar if needed.
+`tab.closeOthers({group?, path?})` keeps the specified tab (default: active tab in the focused group) and closes
+the other tabs in that group. Other groups are untouched. It uses the same dirty-buffer and running-terminal
+confirmations as closing individual tabs; Cancel stops the remaining closes. Tabs opened during a confirmation
+are not added to the close list. Dirty buffers still open in another group remain intact.
 `tab.closeSaved()` closes all clean document tabs across the window, leaving dirty buffers, in-progress saves and terminal
 tabs open. Copy Path and Copy Relative Path reuse the file commands; filesystem operations remain in the Explorer menu.
 

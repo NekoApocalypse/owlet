@@ -1015,6 +1015,7 @@ export default function App() {
       groups(next).find((group) => group.id === groupId)?.tabs.length === 0;
     const result =
       empty && groups(next).length > 1 ? removeGroup(next, groupId)! : next;
+    layoutRef.current = result;
     setLayout(result);
     if (!groups(result).some((group) => group.id === activeGroup))
       setActiveGroup(groups(result)[0].id);
@@ -1028,11 +1029,16 @@ export default function App() {
     } else if (discard)
       patch(path, { text: docsRef.current[path]?.saved || "" });
   }
-  function closeFile(path: string, groupId: number) {
+  function closeFile(
+    path: string,
+    groupId: number,
+    resume?: () => void,
+  ): boolean {
     if (terminalsRef.current.some((item) => item.id === path)) {
-      execute("terminal.close", { id: path });
-      return;
+      return closeTerminal(path, resume);
     }
+    if (saving.current.has(path))
+      throw new Error("Wait for this file to finish saving before closing it");
     const doc = docsRef.current[path];
     const occurrences = groups(layoutRef.current).filter((group) =>
       group.tabs.includes(path),
@@ -1042,9 +1048,36 @@ export default function App() {
         title: `Discard changes to ${basename(path)}?`,
         detail: "The file has not been updated with these edits.",
         confirm: "Discard changes",
-        action: () => performClose(path, groupId),
+        action: () => {
+          if (saving.current.has(path))
+            throw new Error(
+              "Wait for this file to finish saving before closing it",
+            );
+          performClose(path, groupId);
+          resume?.();
+        },
       });
-    } else performClose(path, groupId);
+      return false;
+    }
+    performClose(path, groupId);
+    return true;
+  }
+  function closeOthers(path: string, groupId: number) {
+    const target = groups(layoutRef.current).find((g) => g.id === groupId);
+    if (!target || !target.tabs.includes(path))
+      throw new Error("Choose a tab in this group");
+    // Snapshot the targets: tabs opened while a confirmation is pending survive.
+    const remaining = target.tabs.filter((tab) => tab !== path);
+    const next = () => {
+      while (remaining.length) {
+        const group = groups(layoutRef.current).find((g) => g.id === groupId);
+        if (!group?.tabs.includes(path)) return;
+        const other = remaining.shift()!;
+        if (group.tabs.includes(other) && !closeFile(other, groupId, next))
+          return;
+      }
+    };
+    next();
   }
   function splitGroup(group: Group, axis: "row" | "column", before = false) {
     const id = nextGroup++;
@@ -1145,7 +1178,7 @@ export default function App() {
     return id;
   }
   function detachTerminalTab(id: string) {
-    setLayout((previous) => {
+    const detach = (previous: Layout) => {
       let next = previous;
       for (const group of groups(previous))
         next = mapGroup(next, group.id, (item) => {
@@ -1157,7 +1190,34 @@ export default function App() {
           };
         });
       return next;
-    });
+    };
+    const next = detach(layoutRef.current);
+    layoutRef.current = next;
+    setLayout(next);
+  }
+  function closeTerminal(id?: string, resume?: () => void): boolean {
+    const item = terminalById(id);
+    const close = () => {
+      detachTerminalTab(item.id);
+      setTerminalSessions((items) =>
+        items.filter((entry) => entry.id !== item.id),
+      );
+    };
+    if (["starting", "running"].includes(item.status)) {
+      setPrompt({
+        title: `Kill ${item.name}?`,
+        detail:
+          "This ends this shell and any agent or process running in it. Other terminals stay open.",
+        confirm: "Kill terminal",
+        action: () => {
+          close();
+          resume?.();
+        },
+      });
+      return false;
+    }
+    close();
+    return true;
   }
   function revealTerminal(item: TerminalSession) {
     setActiveTerminal(item.id);
@@ -2595,6 +2655,23 @@ export default function App() {
         },
       },
       {
+        id: "tab.closeOthers",
+        title: "Tab: Close Others",
+        enabled: groups(layout).some((group) => group.tabs.length > 1),
+        parameters: {
+          group: "Optional group ID; default focused group",
+          path: "Tab to keep; default active tab in that group",
+        },
+        run: (args) => {
+          const group = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          const path = args.path ?? group?.active;
+          if (!group || !path) throw new Error("Choose a tab in this group");
+          closeOthers(path, group.id);
+        },
+      },
+      {
         id: "tab.closeSaved",
         title: "Tab: Close All Saved Tabs",
         run: () => {
@@ -3035,24 +3112,7 @@ export default function App() {
         parameters: {
           id: "Optional terminal ID; running shells require confirmation",
         },
-        run: (args) => {
-          const item = terminalById(args.id);
-          const close = () => {
-            detachTerminalTab(item.id);
-            setTerminalSessions((items) =>
-              items.filter((entry) => entry.id !== item.id),
-            );
-          };
-          if (["starting", "running"].includes(item.status))
-            setPrompt({
-              title: `Kill ${item.name}?`,
-              detail:
-                "This ends this shell and any agent or process running in it. Other terminals stay open.",
-              confirm: "Kill terminal",
-              action: close,
-            });
-          else close();
-        },
+        run: (args) => closeTerminal(args.id),
       },
       {
         id: "terminal.restart",
@@ -4227,6 +4287,14 @@ export default function App() {
               disabled: !file || !workspaceItem,
             },
             null,
+            {
+              label: "Close Others",
+              id: "tab.closeOthers",
+              args,
+              disabled: !groups(layout).some(
+                (group) => group.id === fileMenu.group && group.tabs.length > 1,
+              ),
+            },
             { label: "Close All Saved Tabs", id: "tab.closeSaved" },
           ];
         }
