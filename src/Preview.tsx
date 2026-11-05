@@ -213,10 +213,35 @@ export default function Preview({
   useEffect(() => {
     let cancelled = false;
     const element = container.current!;
-    for (const image of element.querySelectorAll<HTMLElement>(
-      ".remote-image",
-    )) {
+    const images = [...element.querySelectorAll<HTMLElement>(".remote-image")];
+    for (const [index, image] of images.entries()) {
       const source = image.dataset.source || "";
+      const img = image.querySelector("img")!;
+      image.dataset.imageIndex = String(index);
+      image.dataset.imageReady = "false";
+      image.classList.remove("image-error");
+      image.querySelector(".image-expand")?.remove();
+      image.querySelector(".image-caption")!.textContent = img.alt;
+      const expand = document.createElement("button");
+      expand.className = "image-expand";
+      expand.textContent = "Expand";
+      expand.title = "Expand image · zoom and pan";
+      expand.setAttribute("aria-label", `Expand image ${index + 1}`);
+      expand.disabled = true;
+      image.appendChild(expand);
+      img.onload = () => {
+        if (cancelled) return;
+        image.dataset.imageReady = "true";
+        expand.disabled = false;
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        image.dataset.imageReady = "false";
+        expand.disabled = true;
+        image.classList.add("image-error");
+        image.querySelector(".image-caption")!.textContent =
+          `${source}: Image could not be decoded`;
+      };
       window.lwr
         .remote<{ url: string; path: string }>("image", {
           source,
@@ -345,6 +370,19 @@ export default function Preview({
           ref={container}
           dangerouslySetInnerHTML={{ __html: html }}
           onClick={(event) => {
+            const target = event.target as HTMLElement;
+            const image = target.closest<HTMLElement>(".remote-image");
+            if (
+              image?.dataset.imageReady === "true" &&
+              (target.closest(".image-expand") ||
+                (target.tagName === "IMG" && !target.closest("a")))
+            ) {
+              event.preventDefault();
+              onCommand("preview.image.open", {
+                index: Number(image.dataset.imageIndex),
+              });
+              return;
+            }
             const expand = (event.target as HTMLElement).closest(
               ".diagram-expand",
             );

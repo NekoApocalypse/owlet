@@ -33,6 +33,7 @@ Commands that require a path, number, or text offer a prompt when invoked from t
 | Image fit and zoom | `image.fit`, `.zoomIn`, `.zoomOut` |
 | Create/switch/rename/kill terminals, move into editor/panel, show/hide/focus, restart, resize, send text | `terminal.new`, `.select`, `.next`, `.previous`, `.rename`, `.close`, `.moveToEditor`, `.moveToPanel`, `.toggle`, `.focus`, `.restart`, `.start`, `.setHeight`, `.grow`, `.shrink`, `.sendText` |
 | Expand Mermaid diagrams, fit/actual size, zoom, pan, close | `diagram.open`, `.fit`, `.actualSize`, `.zoomIn`, `.zoomOut`, `.zoom`, `.pan`, `.close` |
+| Expand embedded Markdown images, fit/actual size, zoom, pan, close | `preview.image.open`, `.fit`, `.actualSize`, `.zoomIn`, `.zoomOut`, `.zoom`, `.pan`, `.close` |
 | Reconnect/disconnect, project color/import/reset/settings, notices, workspace inspection | `connection.*`, `project.*`, `message.dismiss`, `workspace.state` |
 | Approve or cancel a pending destructive action | `confirmation.accept`, `.cancel`; approval requires the current question's token |
 
@@ -117,6 +118,17 @@ The native File menu sends command IDs back to the renderer registry; it does no
 `workspace.state().diagram` through the registry reports current scale and translation. The viewer uses already-sanitized SVG;
 commands do not accept arbitrary SVG or HTML. Tests in `tests/terminal-workspaces.cjs` exercise these UI/API paths,
 shell continuity, targeted input, real SSH reconnect, diagram navigation, and Find/Replace behavior and styling.
+
+`preview.image.open({index?, group?})` expands a loaded image in the target Markdown preview, defaulting to its first image
+and the focused group. Clicking an unlinked image or its Expand button uses this command. Linked images keep their existing
+navigation; their Expand button opens the viewer. Loading, missing, or undecodable images cannot expand.
+`preview.image.zoom({scale?, factor?, x?, y?})` and `preview.image.pan({dx?, dy?})` accept the same parameters as their diagram
+counterparts; omitted values prompt. The other image viewer commands take no arguments. Controls are enabled only while an
+expanded image is open. `workspace.state({readOnly:true}).expandedImage` reports its title, dimensions, scale and translation;
+the existing `.diagram` field remains specific to Mermaid. The viewer reuses already-loaded image bytes, without another SSH
+read. Scroll zooms around the pointer, dragging or arrow keys pans, +/- zooms, 0 fits, 1 shows actual size, Escape closes,
+and double-click fits. Preview text zoom and source Markdown stay unchanged. Existing supported image formats and size limits
+remain in effect; SVG image-file support is not added by this feature. `tests/expanded-images.cjs` covers local and SSH behavior.
 
 `tests/explorer-rename.cjs` verifies directory rename recovery locally and over SSH: obsolete subtree requests stop,
 unsaved buffers survive, and a missing workspace root shows an inline notice instead of repeated error toasts.

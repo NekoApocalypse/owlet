@@ -1,21 +1,27 @@
 import { useEffect, useRef } from "react";
 import { Maximize, Minus, Plus, X } from "lucide-react";
 export type DiagramView = {
-  svg: string;
+  id: number;
   title: string;
   width: number;
   height: number;
   scale: number;
   x: number;
   y: number;
-};
+} & (
+  { kind: "diagram"; svg: string } | { kind: "image"; src: string; alt: string }
+);
 export default function DiagramViewer({
   diagram,
-  onCommand,
+  onCommand: execute,
 }: {
   diagram: DiagramView;
   onCommand(id: string, args?: Record<string, unknown>): void;
 }) {
+  const image = diagram.kind === "image";
+  const noun = image ? "image" : "diagram";
+  const onCommand = (id: string, args?: Record<string, unknown>) =>
+    execute(image ? id.replace(/^diagram\./, "preview.image.") : id, args);
   const dialog = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(
@@ -50,7 +56,7 @@ export default function DiagramViewer({
       className="diagram-viewer"
       role="dialog"
       aria-modal="true"
-      aria-label="Expanded Mermaid diagram"
+      aria-label={image ? "Expanded image" : "Expanded Mermaid diagram"}
       ref={dialog}
       onKeyDown={(event) => {
         let command: string | undefined;
@@ -99,7 +105,7 @@ export default function DiagramViewer({
         <strong>{diagram.title}</strong>
         <span className="diagram-help">Drag to pan · Scroll to zoom</span>
         <button
-          aria-label="Zoom diagram out"
+          aria-label={`Zoom ${noun} out`}
           title="Zoom out (-)"
           onClick={() => onCommand("diagram.zoomOut")}
         >
@@ -107,27 +113,27 @@ export default function DiagramViewer({
         </button>
         <button
           title="Actual size (1)"
-          aria-label="Diagram actual size"
+          aria-label={image ? "Image actual size" : "Diagram actual size"}
           onClick={() => onCommand("diagram.actualSize")}
         >
           {Math.round(diagram.scale * 100)}%
         </button>
         <button
-          aria-label="Zoom diagram in"
+          aria-label={`Zoom ${noun} in`}
           title="Zoom in (+)"
           onClick={() => onCommand("diagram.zoomIn")}
         >
           <Plus size={16} />
         </button>
         <button
-          aria-label="Fit diagram"
-          title="Fit diagram (0)"
+          aria-label={`Fit ${noun}`}
+          title={`Fit ${noun} (0)`}
           onClick={() => onCommand("diagram.fit")}
         >
           <Maximize size={16} /> Fit
         </button>
         <button
-          aria-label="Close diagram"
+          aria-label={`Close ${noun}`}
           title="Close (Esc)"
           onClick={() => onCommand("diagram.close")}
         >
@@ -138,7 +144,7 @@ export default function DiagramViewer({
         className="diagram-canvas"
         ref={canvas}
         tabIndex={0}
-        aria-label="Diagram canvas; drag to pan, scroll to zoom"
+        aria-label={`${image ? "Image" : "Diagram"} canvas; drag to pan, scroll to zoom`}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
@@ -179,8 +185,20 @@ export default function DiagramViewer({
             height: diagram.height,
             transform: `translate(${diagram.x}px, ${diagram.y}px) scale(${diagram.scale})`,
           }}
-          dangerouslySetInnerHTML={{ __html: diagram.svg }}
-        />
+          {...(diagram.kind === "diagram"
+            ? { dangerouslySetInnerHTML: { __html: diagram.svg } }
+            : {})}
+        >
+          {diagram.kind === "image" ? (
+            <img
+              src={diagram.src}
+              alt={diagram.alt}
+              draggable={false}
+              width={diagram.width}
+              height={diagram.height}
+            />
+          ) : undefined}
+        </div>
       </div>
     </div>
   );

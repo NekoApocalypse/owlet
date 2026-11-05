@@ -1067,6 +1067,7 @@ input {
   white-space: pre-wrap;
 }
 .remote-image {
+  position: relative;
   display: block;
   text-align: center;
   margin: var(--space-16) 0;
@@ -1074,6 +1075,15 @@ input {
 .remote-image img {
   max-width: 100%;
   border-radius: 5px;
+}
+.remote-image[data-image-ready="true"] img {
+  cursor: zoom-in;
+}
+a .remote-image[data-image-ready="true"] img {
+  cursor: pointer;
+}
+.remote-image .image-expand:disabled {
+  display: none;
 }
 .remote-image img:not([src]) {
   display: none;
@@ -1945,7 +1955,8 @@ input {
 .diagram {
   position: relative;
 }
-.diagram .diagram-expand {
+.diagram .diagram-expand,
+.remote-image .image-expand {
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
@@ -1958,7 +1969,8 @@ input {
     11px "Segoe UI",
     sans-serif;
 }
-.diagram .diagram-expand:hover {
+.diagram .diagram-expand:hover,
+.remote-image .image-expand:hover {
   background: #00346e;
 }
 .diagram-viewer {
@@ -2017,7 +2029,8 @@ input {
   pointer-events: none;
   user-select: none;
 }
-.diagram-transform svg {
+.diagram-transform svg,
+.diagram-transform img {
   display: block;
   max-width: none;
 }

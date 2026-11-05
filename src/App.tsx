@@ -40,7 +40,7 @@ import Editor, {
   sourceView,
   sourceClipboard,
 } from "./Editor";
-import CommandPalette, { useCommands } from "./commands";
+import CommandPalette, { useCommands, type Command } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import Welcome from "./Welcome";
 import TabStrip from "./TabStrip";
@@ -275,6 +275,7 @@ export default function App() {
     return unsubscribe;
   }, []);
   const [diagramView, setDiagramView] = useState<DiagramView | null>(null);
+  const nextExpandedView = useRef(0);
   const [recent, setRecent] = useState<RecentWorkspace[]>([]);
   const [recentPicker, setRecentPicker] = useState<"open" | "remove" | null>(
     null,
@@ -1506,6 +1507,8 @@ export default function App() {
           svg.style.height = `${height}px`;
           svg.style.maxWidth = "none";
           setDiagramView({
+            id: ++nextExpandedView.current,
+            kind: "diagram",
             svg: svg.outerHTML,
             title: `${basename(file || "Markdown")} · Diagram ${index + 1}`,
             width,
@@ -1517,133 +1520,193 @@ export default function App() {
         },
       },
       {
-        id: "diagram.close",
-        title: "Diagram: Close Expanded View",
-        enabled: !!diagramView,
-        run: () => setDiagramView(null),
-      },
-      ...(["fit", "actualSize"] as const).map((action) => ({
-        id: `diagram.${action}`,
-        title:
-          action === "fit"
-            ? "Diagram: Fit to View"
-            : "Diagram: Actual Size (100%)",
-        enabled: !!diagramView,
-        run: () => {
-          const rect = document
-            .querySelector(".diagram-canvas")
-            ?.getBoundingClientRect();
-          if (!rect) return;
-          setDiagramView((value) => {
-            if (!value) return value;
-            const scale =
-              action === "fit"
-                ? Math.max(
-                    0.02,
-                    Math.min(
-                      (rect.width - 48) / value.width,
-                      (rect.height - 48) / value.height,
-                      16,
-                    ),
-                  )
-                : 1;
-            return {
-              ...value,
-              scale,
-              x: (rect.width - value.width * scale) / 2,
-              y: (rect.height - value.height * scale) / 2,
-            };
+        id: "preview.image.open",
+        title: "Markdown: Expand Image…",
+        keywords: ["Fullscreen image", "Zoom image", "Picture"],
+        parameters: {
+          index:
+            "Zero-based image index; defaults to first image in the preview",
+          group: "Optional preview group ID",
+        },
+        enabled: groups(layout).some(
+          (group) => !!group.active && isMarkdown(group.active),
+        ),
+        run: (args) => {
+          const group = args.group ?? currentGroup.id;
+          const index = args.index ?? 0;
+          if (!Number.isInteger(index) || index < 0 || !Number.isInteger(group))
+            throw new Error("Choose a valid image and group");
+          const source = document.querySelectorAll<HTMLImageElement>(
+            `[data-group="${group}"] .markdown-preview .remote-image img`,
+          )[index];
+          if (
+            !source?.complete ||
+            !source.naturalWidth ||
+            !source.naturalHeight
+          )
+            throw new Error(
+              "Open the Markdown preview and wait for its image to load",
+            );
+          const src = source.currentSrc || source.src;
+          if (!/^data:image\//i.test(src))
+            throw new Error("This image is not available for expansion");
+          const file = groups(layoutRef.current).find(
+            (item) => item.id === group,
+          )?.active;
+          setDiagramView({
+            id: ++nextExpandedView.current,
+            kind: "image",
+            src,
+            alt: source.alt,
+            title: `${basename(file || "Markdown")} · ${source.alt || `Image ${index + 1}`}`,
+            width: source.naturalWidth,
+            height: source.naturalHeight,
+            scale: 1,
+            x: 0,
+            y: 0,
           });
         },
-      })),
-      ...(["zoomIn", "zoomOut"] as const).map((action) => ({
-        id: `diagram.${action}`,
-        title: action === "zoomIn" ? "Diagram: Zoom In" : "Diagram: Zoom Out",
-        enabled: !!diagramView,
-        run: () =>
-          commandApi.execute("diagram.zoom", {
-            factor: action === "zoomIn" ? 1.25 : 0.8,
-          }),
-      })),
-      {
-        id: "diagram.zoom",
-        title: "Diagram: Set Zoom…",
-        enabled: !!diagramView,
-        parameters: {
-          scale: "Absolute scale (1 = 100%), clamped to 0.02–16",
-          factor: "Optional relative multiplier instead of scale",
-          x: "Optional anchor x in canvas pixels",
-          y: "Optional anchor y in canvas pixels",
-        },
-        run: (args) => {
-          const apply = (scale?: number, factor?: number) => {
-            if (
-              (scale !== undefined &&
-                (!Number.isFinite(scale) || scale <= 0)) ||
-              (factor !== undefined &&
-                (!Number.isFinite(factor) || factor <= 0))
-            )
-              throw new Error("Choose a positive zoom");
-            const rect = document
-              .querySelector(".diagram-canvas")
-              ?.getBoundingClientRect();
-            if (!rect) return;
-            const x = args.x ?? rect.width / 2,
-              y = args.y ?? rect.height / 2;
-            if (!Number.isFinite(x) || !Number.isFinite(y))
-              throw new Error("Invalid zoom anchor");
-            setDiagramView((value) => {
-              if (!value) return value;
-              const next = Math.max(
-                0.02,
-                Math.min(16, scale ?? value.scale * (factor ?? 1)),
-              );
-              return {
-                ...value,
-                scale: next,
-                x: x - ((x - value.x) * next) / value.scale,
-                y: y - ((y - value.y) * next) / value.scale,
-              };
-            });
-          };
-          return args.scale === undefined && args.factor === undefined
-            ? setPathPrompt({
-                title: "Diagram zoom (%)",
-                value: String(Math.round(diagramView!.scale * 100)),
-                action: (value) => apply(Number(value) / 100),
-              })
-            : apply(args.scale, args.factor);
-        },
       },
-      {
-        id: "diagram.pan",
-        title: "Diagram: Pan…",
-        enabled: !!diagramView,
-        parameters: {
-          dx: "Horizontal movement in pixels",
-          dy: "Vertical movement in pixels",
+      ...(["diagram", "preview.image"] as const).flatMap(
+        (prefix): Command[] => {
+          const label = prefix === "diagram" ? "Diagram" : "Preview Image";
+          const enabled =
+            diagramView?.kind === (prefix === "diagram" ? "diagram" : "image");
+          return [
+            {
+              id: `${prefix}.close`,
+              title: `${label}: Close Expanded View`,
+              enabled,
+              run: () => setDiagramView(null),
+            },
+            ...(["fit", "actualSize"] as const).map((action) => ({
+              id: `${prefix}.${action}`,
+              title:
+                action === "fit"
+                  ? `${label}: Fit to View`
+                  : `${label}: Actual Size (100%)`,
+              enabled,
+              run: () => {
+                const rect = document
+                  .querySelector(".diagram-canvas")
+                  ?.getBoundingClientRect();
+                if (!rect) return;
+                setDiagramView((value) => {
+                  if (!value) return value;
+                  const scale =
+                    action === "fit"
+                      ? Math.max(
+                          0.02,
+                          Math.min(
+                            (rect.width - 48) / value.width,
+                            (rect.height - 48) / value.height,
+                            16,
+                          ),
+                        )
+                      : 1;
+                  return {
+                    ...value,
+                    scale,
+                    x: (rect.width - value.width * scale) / 2,
+                    y: (rect.height - value.height * scale) / 2,
+                  };
+                });
+              },
+            })),
+            ...(["zoomIn", "zoomOut"] as const).map((action) => ({
+              id: `${prefix}.${action}`,
+              title:
+                action === "zoomIn"
+                  ? `${label}: Zoom In`
+                  : `${label}: Zoom Out`,
+              enabled,
+              run: () =>
+                commandApi.execute(`${prefix}.zoom`, {
+                  factor: action === "zoomIn" ? 1.25 : 0.8,
+                }),
+            })),
+            {
+              id: `${prefix}.zoom`,
+              title: `${label}: Set Zoom…`,
+              enabled,
+              parameters: {
+                scale: "Absolute scale (1 = 100%), clamped to 0.02–16",
+                factor: "Optional relative multiplier instead of scale",
+                x: "Optional anchor x in canvas pixels",
+                y: "Optional anchor y in canvas pixels",
+              },
+              run: (args) => {
+                const apply = (scale?: number, factor?: number) => {
+                  if (
+                    (scale !== undefined &&
+                      (!Number.isFinite(scale) || scale <= 0)) ||
+                    (factor !== undefined &&
+                      (!Number.isFinite(factor) || factor <= 0))
+                  )
+                    throw new Error("Choose a positive zoom");
+                  const rect = document
+                    .querySelector(".diagram-canvas")
+                    ?.getBoundingClientRect();
+                  if (!rect) return;
+                  const x = args.x ?? rect.width / 2,
+                    y = args.y ?? rect.height / 2;
+                  if (!Number.isFinite(x) || !Number.isFinite(y))
+                    throw new Error("Invalid zoom anchor");
+                  setDiagramView((value) => {
+                    if (!value) return value;
+                    const next = Math.max(
+                      0.02,
+                      Math.min(16, scale ?? value.scale * (factor ?? 1)),
+                    );
+                    return {
+                      ...value,
+                      scale: next,
+                      x: x - ((x - value.x) * next) / value.scale,
+                      y: y - ((y - value.y) * next) / value.scale,
+                    };
+                  });
+                };
+                return args.scale === undefined && args.factor === undefined
+                  ? setPathPrompt({
+                      title: `${label} zoom (%)`,
+                      value: String(Math.round(diagramView!.scale * 100)),
+                      action: (value) => apply(Number(value) / 100),
+                    })
+                  : apply(args.scale, args.factor);
+              },
+            },
+            {
+              id: `${prefix}.pan`,
+              title: `${label}: Pan…`,
+              enabled,
+              parameters: {
+                dx: "Horizontal movement in pixels",
+                dy: "Vertical movement in pixels",
+              },
+              run: (args) => {
+                const apply = (dx: number, dy: number) => {
+                  if (!Number.isFinite(dx) || !Number.isFinite(dy))
+                    throw new Error("Enter numeric x, y movement");
+                  setDiagramView(
+                    (value) =>
+                      value && { ...value, x: value.x + dx, y: value.y + dy },
+                  );
+                };
+                return args.dx === undefined && args.dy === undefined
+                  ? setPathPrompt({
+                      title: "Pan by x, y pixels",
+                      value: "100, 0",
+                      action: (value) => {
+                        const [x, y] = value.split(",").map(Number);
+                        apply(x, y);
+                      },
+                    })
+                  : apply(args.dx ?? 0, args.dy ?? 0);
+              },
+            },
+          ];
         },
-        run: (args) => {
-          const apply = (dx: number, dy: number) => {
-            if (!Number.isFinite(dx) || !Number.isFinite(dy))
-              throw new Error("Enter numeric x, y movement");
-            setDiagramView(
-              (value) =>
-                value && { ...value, x: value.x + dx, y: value.y + dy },
-            );
-          };
-          return args.dx === undefined && args.dy === undefined
-            ? setPathPrompt({
-                title: "Pan by x, y pixels",
-                value: "100, 0",
-                action: (value) => {
-                  const [x, y] = value.split(",").map(Number);
-                  apply(x, y);
-                },
-              })
-            : apply(args.dx ?? 0, args.dy ?? 0);
-        },
-      },
+      ),
       {
         id: "menu.file",
         title: "File: Show File Menu",
@@ -3112,16 +3175,28 @@ export default function App() {
               active: selectedTerminal?.id,
               sessions: terminalSessions,
             },
-            diagram: diagramView
-              ? {
-                  title: diagramView.title,
-                  scale: diagramView.scale,
-                  x: diagramView.x,
-                  y: diagramView.y,
-                  width: diagramView.width,
-                  height: diagramView.height,
-                }
-              : null,
+            diagram:
+              diagramView?.kind === "diagram"
+                ? {
+                    title: diagramView.title,
+                    scale: diagramView.scale,
+                    x: diagramView.x,
+                    y: diagramView.y,
+                    width: diagramView.width,
+                    height: diagramView.height,
+                  }
+                : null,
+            expandedImage:
+              diagramView?.kind === "image"
+                ? {
+                    title: diagramView.title,
+                    scale: diagramView.scale,
+                    x: diagramView.x,
+                    y: diagramView.y,
+                    width: diagramView.width,
+                    height: diagramView.height,
+                  }
+                : null,
             documents: Object.values(documents).map((doc) => ({
               path: doc.path,
               loading: !!doc.loading,
@@ -4974,7 +5049,11 @@ export default function App() {
         </div>
       </main>
       {diagramView && (
-        <DiagramViewer diagram={diagramView} onCommand={execute} />
+        <DiagramViewer
+          key={diagramView.id}
+          diagram={diagramView}
+          onCommand={execute}
+        />
       )}
       <Suspense fallback={null}>
         {terminalSessions.map((item) => (
