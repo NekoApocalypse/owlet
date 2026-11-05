@@ -18,3 +18,5 @@ directory upload, or persistent remote service is introduced.
 Validation: `npm run build`; `tests/uploads.test.cjs`; `tests/upload-progress.cjs` locally and over configured SSH; existing
 file-operation and remote-drop regressions. UI acceptance exercises native multi-file drops, immediate rows, progress,
 hide/show, queued/API and active/button cancellation, cleanup, remaining-file completion, reload recovery, and collision errors.
+The broader Vim/files regression also passes, including native drops and clipboard operations. Its partial-index assertion now
+uses a test-only list delay and explicit reindex, avoiding a race when a fast local disk finishes before the first keyboard event.
