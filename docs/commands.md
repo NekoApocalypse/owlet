@@ -209,6 +209,9 @@ Arguments, file contents and terminal input are never recorded. `commands.recent
 | Rename / move | `file.rename({path?, name?})`, `file.move({path?, directory?, destination?})`; a directory retains the basename, destination is a complete path; omitted destination/name prompts |
 | Delete | `file.delete({path?})`; deletion is permanent and always confirms |
 | Copy/upload local files | `file.import({directory?, paths?})`; paths are absolute local regular files; omission opens a native picker |
+| Show / inspect upload queue | `uploads.show()` opens the popup and returns this window's items: `id`, `name`, `path`, `directory`, `size`, `transferred`, `status`, `remote`, optional `error` |
+| Hide upload popup | `uploads.hide()` leaves transfers running; the status bar can reopen it |
+| Stop one upload | `uploads.stop({id?})`; ID comes from `uploads.show`; omission opens the popup to choose an item |
 | Download from SSH | `file.download({path?, destination?})`; omit destination for Save As; explicit destination must not exist |
 | Reload current/open file | `file.reload({path?, discard?})`; refuses dirty buffers unless discard is explicitly true; `file.revert` presents a confirmation first |
 | Execute a Vim Ex command | `editor.vimCommand({command?})`; omit for a prompt; requires Vim enabled and a source editor; host operations return a completion boolean |
@@ -217,6 +220,14 @@ Context menus and drag outcomes dispatch these same commands. Move, rename, and 
 use `workspace.state().confirmation` and `confirmation.accept({token})`. Neither API calls nor dragging bypass the dirty
 buffer, revision, workspace-boundary, or no-overwrite checks. Import/download streams stay in the main process, outside the
 renderer. Direct typing, drag capture, menu navigation, and fuzzy query editing remain widget interactions.
+
+Imports immediately queue Explorer placeholders and report confirmed bytes in a compact transfer popup. Files are copied
+sequentially per window. `file.import` resolves to `{paths, cancelled, failed}` after its batch settles; individual failures
+remain visible in the popup and do not prevent later files from copying. Existing destination files are never replaced.
+Stopping a queued file skips it; stopping an active file finishes its outstanding chunk request, then removes its temporary
+file. The final commit cannot be cancelled once started. Hide never cancels and progress updates never unhide the popup;
+adding another batch shows it again. Queues survive renderer reloads, not application exit. Completed/failed/stopped entries
+remain until another batch starts. Folder and symbolic-link drops remain unsupported. The same behavior applies to local copies.
 
 `tests/vim-files.cjs`, `tests/remote-files-ui.cjs`, and `tests/file-operations.test.cjs` cover these paths. The SSH checks need
 `OWLET_SSH_TARGET` and optionally `OWLET_TEST_TMPDIR`; they use dedicated test directories.

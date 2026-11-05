@@ -46,6 +46,8 @@ import Welcome from "./Welcome";
 import TabStrip from "./TabStrip";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
+import Uploads, { uploading } from "./Uploads";
+import type { Upload } from "./types";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { pdfCommand, type PdfAction } from "./pdfCommands";
@@ -240,6 +242,38 @@ function ImageViewer({
 }
 
 export default function App() {
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [uploadsVisible, setUploadsVisible] = useState(false);
+  const uploadsRef = useRef<Upload[]>([]);
+  useEffect(() => {
+    let received = false;
+    const update = (items: Upload[]) => {
+      const previous = uploadsRef.current;
+      if (items.some((item) => !previous.some((old) => old.id === item.id)))
+        setUploadsVisible(true);
+      if (
+        items.some(
+          (item) =>
+            !uploading(item) &&
+            previous.some((old) => old.id === item.id && uploading(old)),
+        )
+      )
+        setRefresh((value) => value + 1);
+      uploadsRef.current = items;
+      setUploads(items);
+    };
+    const unsubscribe = window.lwr.onUploads((items) => {
+      received = true;
+      update(items);
+    });
+    void window.lwr
+      .uploads()
+      .then((items) => {
+        if (!received) update(items);
+      })
+      .catch(report);
+    return unsubscribe;
+  }, []);
   const [diagramView, setDiagramView] = useState<DiagramView | null>(null);
   const [recent, setRecent] = useState<RecentWorkspace[]>([]);
   const [recentPicker, setRecentPicker] = useState<"open" | "remove" | null>(
@@ -2018,6 +2052,31 @@ export default function App() {
         },
       },
       {
+        id: "uploads.show",
+        title: "File: Show Upload Progress",
+        keywords: ["transfers", "copy", "queue"],
+        run: () => {
+          setUploadsVisible(true);
+          return window.lwr.uploads();
+        },
+      },
+      {
+        id: "uploads.hide",
+        title: "File: Hide Upload Progress",
+        run: () => setUploadsVisible(false),
+      },
+      {
+        id: "uploads.stop",
+        title: "File: Stop Upload…",
+        parameters: {
+          id: "Upload ID from uploads.show; omission opens the transfer popup to choose a file",
+        },
+        run: (args) =>
+          args.id !== undefined
+            ? window.lwr.stopUpload(args.id)
+            : setUploadsVisible(true),
+      },
+      {
         id: "file.import",
         title: local
           ? "File: Copy Local Files into Workspace…"
@@ -2029,17 +2088,13 @@ export default function App() {
             "Optional array of absolute local file paths; omission opens a picker",
         },
         run: async (args) => {
-          markBusy("transfer", true);
-          setMessage(local ? "Copying files…" : "Uploading files…");
           try {
             const result = await window.lwr.importFiles({
               directory: args.directory || root,
               paths: args.paths,
             });
-            setMessage(result ? `Saved ${result.paths.length} file(s)` : "");
             return result;
           } finally {
-            markBusy("transfer", false);
             setRefresh((value) => value + 1);
           }
         },
@@ -4680,6 +4735,7 @@ export default function App() {
               }}
             >
               <Explorer
+                uploads={uploads}
                 cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
                 onContext={(path, directory, x, y) =>
                   setFileMenu({ path, directory, x, y })
@@ -4965,20 +5021,23 @@ export default function App() {
           </div>
         </div>
       )}
-      {message && (
-        <div
-          className={`toast ${/^(saved|connected|created|moved|deleted|copying|copied|cut|uploading|downloading|downloaded)/i.test(message) ? "" : "error-toast"}`}
-          role="status"
-        >
-          <span>{message}</span>
-          <button
-            aria-label="Dismiss message"
-            onClick={() => execute("message.dismiss")}
+      <div className="notification-stack">
+        {uploadsVisible && <Uploads items={uploads} onCommand={execute} />}
+        {message && (
+          <div
+            className={`toast ${/^(saved|connected|created|moved|deleted|copying|copied|cut|uploading|downloading|downloaded)/i.test(message) ? "" : "error-toast"}`}
+            role="status"
           >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+            <span>{message}</span>
+            <button
+              aria-label="Dismiss message"
+              onClick={() => execute("message.dismiss")}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+      </div>
       <footer className="statusbar">
         <div>
           <button
@@ -5033,6 +5092,16 @@ export default function App() {
           </span>
         </div>
         <div>
+          {uploads.length > 0 && (
+            <button
+              title="Show upload progress"
+              onClick={() => execute("uploads.show")}
+            >
+              {uploads.filter(uploading).length
+                ? `Transferring ${uploads.filter(uploading).length}`
+                : "Transfers"}
+            </button>
+          )}
           <button
             className={vimMode ? "vim-active" : ""}
             aria-label="Toggle Vim mode"

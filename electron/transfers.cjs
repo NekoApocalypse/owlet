@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { info } = require("./file-operations.cjs");
-async function importFiles(connection, root, directory, sources) {
+function inspectSources(sources) {
   if (
     !Array.isArray(sources) ||
     !sources.length ||
@@ -12,7 +12,7 @@ async function importFiles(connection, root, directory, sources) {
     throw Error("Choose 1–100 local files.");
   // Validate the entire selection before starting. Directory drops are explicit
   // errors rather than a surprise recursive upload of a large local tree.
-  const files = sources.map((file) => {
+  return sources.map((file) => {
     const before = info(file);
     if (before.directory || before.symlink || !fs.statSync(file).isFile())
       throw Error(
@@ -20,10 +20,17 @@ async function importFiles(connection, root, directory, sources) {
       );
     return { file, before };
   });
+}
+async function importFiles(connection, root, directory, sources, options = {}) {
+  const files = inspectSources(sources);
+  const checkCancelled = () => {
+    if (options.cancelled?.()) throw Error("Upload stopped.");
+  };
   const completed = [];
   for (const { file, before } of files) {
     let token;
     try {
+      checkCancelled();
       ({ token } = await connection.request("upload-start", {
         root,
         directory,
@@ -31,18 +38,23 @@ async function importFiles(connection, root, directory, sources) {
         size: before.size,
       }));
       let offset = 0;
+      checkCancelled();
       for await (const data of fs.createReadStream(file, {
         highWaterMark: 16384,
       })) {
+        checkCancelled();
         await connection.request("upload-chunk", {
           token,
           offset,
           data: data.toString("base64"),
         });
         offset += data.length;
+        options.progress?.(offset, before.size);
       }
+      checkCancelled();
       if (info(file).revision !== before.revision)
         throw Error("Local file changed during transfer; retry.");
+      options.committing?.();
       const result = await connection.request("upload-finish", { token });
       token = undefined;
       completed.push(result.path);
@@ -127,4 +139,4 @@ async function downloadFile(
     if (fs.existsSync(temp)) fs.unlinkSync(temp);
   }
 }
-module.exports = { importFiles, downloadFile };
+module.exports = { importFiles, downloadFile, inspectSources };

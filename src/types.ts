@@ -92,6 +92,24 @@ export type ReloadState = {
   activeTerminal?: string;
   terminalSerial: number;
 };
+export type Upload = {
+  id: string;
+  name: string;
+  directory: string;
+  path: string;
+  size: number;
+  transferred: number;
+  status:
+    | "queued"
+    | "uploading"
+    | "stopping"
+    | "finishing"
+    | "completed"
+    | "cancelled"
+    | "failed";
+  remote: boolean;
+  error?: string;
+};
 declare global {
   interface Window {
     lwr: {
@@ -101,10 +119,17 @@ declare global {
       clearCommandHistory(): Promise<string[]>;
       onCommandHistory(fn: (ids: string[]) => void): () => void;
       droppedPaths(files: File[]): string[];
+      uploads(): Promise<Upload[]>;
+      stopUpload(id: string): Promise<boolean>;
+      onUploads(fn: (items: Upload[]) => void): () => void;
       importFiles(args: {
         directory: string;
         paths?: string[];
-      }): Promise<{ paths: string[] } | null>;
+      }): Promise<{
+        paths: string[];
+        cancelled: number;
+        failed: number;
+      } | null>;
       downloadFile(args: {
         path: string;
         destination?: string;

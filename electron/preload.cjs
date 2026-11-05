@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("lwr", {
   droppedPaths: (files) =>
     files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
   importFiles: (args) => ipcRenderer.invoke("files-import", args),
+  uploads: () => ipcRenderer.invoke("uploads-list"),
+  stopUpload: (id) => ipcRenderer.invoke("upload-stop", id),
+  onUploads: (callback) => subscribe("uploads-changed", callback),
   downloadFile: (args) => ipcRenderer.invoke("file-download", args),
   readSettings: () => ipcRenderer.invoke("settings-read"),
   saveSettings: (args) => ipcRenderer.invoke("settings-save", args),

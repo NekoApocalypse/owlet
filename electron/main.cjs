@@ -102,6 +102,17 @@ function sessionFor(target) {
 function backend(event) {
   return windows.get(event.sender.id).session;
 }
+const uploads = new Map();
+function uploadQueue(event) {
+  let queue = uploads.get(event.sender.id);
+  if (!queue) {
+    queue = new (require("./uploads.cjs").UploadQueue)((items) => {
+      if (!event.sender.isDestroyed()) event.sender.send("uploads-changed", items);
+    });
+    uploads.set(event.sender.id, queue);
+  }
+  return queue;
+}
 
 function sendAll(channel, payload) {
   for (const win of BrowserWindow.getAllWindows())
@@ -181,6 +192,8 @@ function openWindow(root, file, session = sessionFor(), source) {
   });
   const owner = win.webContents.id;
   win.on("closed", () => {
+    uploads.get(owner)?.stop();
+    uploads.delete(owner);
     windows.delete(owner);
     for (const [terminal, webContents] of terminals)
       if (webContents.id === owner) {
@@ -316,6 +329,14 @@ ipcMain.handle("remote", async (event, method, args) => {
   }
   return result;
 });
+ipcMain.handle("uploads-list", (event) => {
+  trusted(event);
+  return uploadQueue(event).snapshot();
+});
+ipcMain.handle("upload-stop", (event, id) => {
+  trusted(event);
+  return uploadQueue(event).cancel(id);
+});
 ipcMain.handle("files-import", async (event, args) => {
   trusted(event);
   const connection = backend(event);
@@ -334,7 +355,7 @@ ipcMain.handle("files-import", async (event, args) => {
     if (result.canceled) return null;
     paths = result.filePaths;
   }
-  return require("./transfers.cjs").importFiles(
+  return uploadQueue(event).add(
     connection,
     windows.get(event.sender.id).root || connection.state.home,
     args.directory,
