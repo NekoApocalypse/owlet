@@ -32,6 +32,7 @@ import {
   Trash2,
   Pencil,
   Settings as SettingsIcon,
+  Search as SearchIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
 import Editor, {
@@ -39,6 +40,7 @@ import Editor, {
   vimCommand,
   sourceView,
   sourceClipboard,
+  revealSearchMatch,
 } from "./Editor";
 import CommandPalette, { useCommands, type Command } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
@@ -46,6 +48,8 @@ import Welcome from "./Welcome";
 import TabStrip from "./TabStrip";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
+import ProjectSearch, { useProjectSearch } from "./ProjectSearch";
+import { dropEdge, tileOpenTab, type TileEdge } from "./tiling";
 import Uploads, { uploading } from "./Uploads";
 import type { Upload } from "./types";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
@@ -313,6 +317,22 @@ export default function App() {
   });
   const [activeGroup, setActiveGroup] = useState(1);
   const [sidebar, setSidebar] = useState(true);
+  const [tabDrop, setTabDrop] = useState<{
+    group: number;
+    edge: TileEdge | "center";
+  } | null>(null);
+  useEffect(() => {
+    const clear = () => setTabDrop(null);
+    window.addEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+    };
+  }, []);
+  const [sidebarMode, setSidebarMode] = useState<"explorer" | "search">(
+    "explorer",
+  );
   const [sidebarWidth, setSidebarWidth] = useState(252);
   const sidebarResize = useRef<{
     pointer: number;
@@ -1298,6 +1318,13 @@ export default function App() {
     setActiveGroup(destination);
   }
   const connected = connection.status === "connected";
+  const projectSearch = useProjectSearch(root, connected, settings);
+  function showSearch(args: Record<string, any> = {}) {
+    setSidebar(true);
+    setSidebarMode("search");
+    projectSearch.configure(args);
+    requestAnimationFrame(() => projectSearch.input.current?.focus());
+  }
   const local = connection.kind === "local";
   function terminalById(id = selectedTerminal?.id) {
     const item = terminalsRef.current.find((item) => item.id === id);
@@ -1406,6 +1433,173 @@ export default function App() {
     [
       ...appearance.commands,
       ...about.commands,
+      {
+        id: "search.open",
+        title: "Search: Find in Project",
+        shortcut: "Ctrl+Shift+F",
+        keywords: ["Find in Files", "Full text", "Workspace search"],
+        parameters: {
+          query: "Optional literal query",
+          directory:
+            "Optional search folder, relative to workspace or absolute",
+        },
+        run: (args) => {
+          showSearch(args);
+          if (args.query) return projectSearch.run(args);
+        },
+      },
+      {
+        id: "search.run",
+        title: "Search: Run or Rerun Project Search",
+        enabled: connected && !!root,
+        parameters: {
+          query: "Literal single-line query; defaults to search field",
+          directory: "Folder within workspace",
+          include: "Comma-separated include globs",
+          exclude:
+            "Comma-separated exclude globs; empty disables configured exclusions",
+          caseSensitive: "Boolean",
+          wholeWord: "Boolean",
+          includeHidden: "Boolean",
+          includeIgnored: "Boolean",
+          maxResults: "1–10000 matching lines",
+          timeoutSeconds: "1–120 seconds",
+          maxResultMB: "1–8 MiB",
+          maxFileSizeMB: "1–32 MiB",
+          maxDepth: "0 for all depths; otherwise 1–100",
+          threads: "1–4 workers",
+        },
+        run: (args) => {
+          setSidebar(true);
+          setSidebarMode("search");
+          return projectSearch.run(args);
+        },
+      },
+      {
+        id: "search.stop",
+        title: "Search: Stop Project Search",
+        run: () => projectSearch.stop(),
+      },
+      {
+        id: "search.clear",
+        title: "Search: Clear Project Search",
+        run: () => projectSearch.clear(),
+      },
+      {
+        id: "search.more",
+        title: "Search: Rerun with Higher Limits",
+        enabled: connected && !!projectSearch.state.request,
+        run: () => projectSearch.more(),
+      },
+      {
+        id: "search.scope",
+        title: "Search: Find in Folder…",
+        parameters: {
+          directory:
+            "Folder within workspace; omission focuses the scope field",
+        },
+        run: (args) => {
+          showSearch(args);
+          if (args.directory !== undefined) {
+            if (projectSearch.form.query) return projectSearch.run(args);
+          } else
+            requestAnimationFrame(() =>
+              document
+                .querySelector<HTMLInputElement>(
+                  'input[aria-label="Search folder"]',
+                )
+                ?.focus(),
+            );
+        },
+      },
+      {
+        id: "search.toggleFile",
+        title: "Search: Expand or Collapse File Results",
+        parameters: { path: "Result file path; defaults to first result file" },
+        enabled: projectSearch.state.matches.length > 0,
+        run: (args) => {
+          const path = args.path ?? projectSearch.state.matches[0]?.path;
+          if (!projectSearch.state.matches.some((item) => item.path === path))
+            throw Error("Choose a file from the search results.");
+          projectSearch.toggleFile(path);
+        },
+      },
+      {
+        id: "search.inspect",
+        title: "Search: Inspect Project Search",
+        parameters: { readOnly: "True returns state; otherwise copies JSON" },
+        run: (args) => {
+          const result = { ...projectSearch.state, form: projectSearch.form };
+          if (!args.readOnly)
+            void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+          return result;
+        },
+      },
+      {
+        id: "search.openResult",
+        title: "Search: Open Matching Line",
+        parameters: {
+          index: "Zero-based matching-line index; defaults to first result",
+        },
+        enabled: projectSearch.state.matches.length > 0,
+        run: async (args) => {
+          const index = args.index ?? 0;
+          if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            !projectSearch.state.matches[index]
+          )
+            throw Error("Choose a valid search result.");
+          const match = projectSearch.state.matches[index],
+            group = groupRef.current;
+          await openFile(match.path, group);
+          if (
+            groups(layoutRef.current).find((item) => item.id === group)
+              ?.active !== match.path
+          )
+            return;
+          const doc = docsRef.current[match.path];
+          if (!doc || doc.loadError || doc.unsupported)
+            throw Error(
+              doc?.loadError ||
+                doc?.unsupported ||
+                "Unable to open this result.",
+            );
+          setMode(match.path, "source", group);
+          for (let attempt = 0; attempt < 60; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 16));
+            if (
+              groups(layoutRef.current).find((item) => item.id === group)
+                ?.active !== match.path
+            )
+              return;
+            const result = revealSearchMatch(
+              `${group}:${match.path}`,
+              match.line,
+              match.column,
+              match.match,
+            );
+            if (result === "ready") return true;
+            if (result === "stale") {
+              setMessage(
+                "This file changed since the search. Rerun to update the matching line.",
+              );
+              return false;
+            }
+          }
+          throw Error(
+            "The source editor is not ready. Try opening the result again.",
+          );
+        },
+      },
+      {
+        id: "explorer.show",
+        title: "View: Show Explorer",
+        run: () => {
+          setSidebar(true);
+          setSidebarMode("explorer");
+        },
+      },
       {
         id: "project.settings.open",
         title: "Project: Open .owlet/settings.json",
@@ -1857,7 +2051,12 @@ export default function App() {
         id: "explorer.toggle",
         title: "View: Toggle Explorer",
         shortcut: "Ctrl+Shift+E",
-        run: () => setSidebar((value) => !value),
+        run: () => {
+          if (sidebarMode === "search") {
+            setSidebarMode("explorer");
+            setSidebar(true);
+          } else setSidebar((value) => !value);
+        },
       },
       {
         id: "explorer.refresh",
@@ -3062,6 +3261,74 @@ export default function App() {
         },
       },
       {
+        id: "group.tileTab",
+        title: "Group: Tile Tab at Pane Edge",
+        keywords: [
+          "Drag split",
+          "Move tab left right top bottom",
+          "Tile terminal",
+        ],
+        parameters: {
+          path: "Open file path or terminal ID; defaults to active tab",
+          source: "Optional source group; inferred for open tabs",
+          destination: "Target group; defaults to active group",
+          edge: "left, right, top, bottom; defaults to right",
+        },
+        enabled:
+          groups(layout).some((group) => group.tabs.length > 0) ||
+          terminalSessions.length > 0,
+        run: (args) => {
+          const path = args.path ?? currentGroup.active;
+          const source =
+            args.source ??
+            groups(layoutRef.current).find((group) => group.tabs.includes(path))
+              ?.id;
+          const terminal = terminalsRef.current.find(
+            (item) => item.id === path,
+          );
+          if (
+            typeof path !== "string" ||
+            (source === undefined && terminal?.location !== "panel")
+          )
+            throw Error("Choose an open file or terminal tab.");
+          const id = nextGroup,
+            split = nextSplit;
+          const next = tileOpenTab(
+            layoutRef.current,
+            path,
+            source,
+            args.destination ?? groupRef.current,
+            args.edge ?? "right",
+            id,
+            split,
+          );
+          nextGroup++;
+          nextSplit++;
+          if (terminal) {
+            updateTerminal(terminal.id, { location: "editor" });
+            setActiveTerminal(terminal.id);
+          }
+          setViewModes((previous) => ({
+            ...previous,
+            [`${id}:${path}`]:
+              previous[`${source}:${path}`] ||
+              docsRef.current[path]?.mode ||
+              "source",
+          }));
+          setPreviewRatios((previous) => ({
+            ...previous,
+            [`${id}:${path}`]: previous[`${source}:${path}`] || 0.5,
+          }));
+          layoutRef.current = next;
+          setLayout(next);
+          setActiveGroup(id);
+          groupRef.current = id;
+          setExplorerActivation((value) => value + 1);
+          setTabDrop(null);
+          return { group: id };
+        },
+      },
+      {
         id: "group.equalize",
         title: "Group: Equalize All Split Sizes",
         run: () => {
@@ -3718,6 +3985,17 @@ export default function App() {
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        execute("search.open");
+        return;
+      }
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
         !event.shiftKey &&
         event.key.toLowerCase() === "p"
       ) {
@@ -3987,9 +4265,53 @@ export default function App() {
           });
         }}
         onPointerDown={() => execute("group.focus", { group: group.id })}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
+        onDragOver={(event) => {
+          const types = event.dataTransfer.types;
+          if (
+            !types.includes("application/lwr-tab") &&
+            !types.includes("application/owlet-terminal") &&
+            !types.includes("application/owlet-file")
+          )
+            return;
           event.preventDefault();
+          event.stopPropagation();
+          if (types.includes("application/owlet-file")) return;
+          const edge = (event.target as HTMLElement).closest(".tabs-bar")
+            ? "center"
+            : dropEdge(
+                event.currentTarget.getBoundingClientRect(),
+                event.clientX,
+                event.clientY,
+              );
+          event.dataTransfer.dropEffect = "move";
+          setTabDrop((previous) =>
+            previous?.group === group.id && previous.edge === edge
+              ? previous
+              : { group: group.id, edge },
+          );
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            setTabDrop(null);
+        }}
+        onDrop={(event) => {
+          const types = event.dataTransfer.types;
+          if (
+            !types.includes("application/lwr-tab") &&
+            !types.includes("application/owlet-terminal") &&
+            !types.includes("application/owlet-file")
+          )
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          setTabDrop(null);
+          const edge = (event.target as HTMLElement).closest(".tabs-bar")
+            ? "center"
+            : dropEdge(
+                event.currentTarget.getBoundingClientRect(),
+                event.clientX,
+                event.clientY,
+              );
           try {
             const entry = event.dataTransfer.getData("application/owlet-file");
             if (entry) {
@@ -4002,19 +4324,44 @@ export default function App() {
               "application/owlet-terminal",
             );
             if (terminalId) {
-              execute("terminal.moveToEditor", {
-                id: terminalId,
-                group: group.id,
-              });
+              execute(
+                edge === "center" ? "terminal.moveToEditor" : "group.tileTab",
+                {
+                  id: terminalId,
+                  group: group.id,
+                  path: terminalId,
+                  destination: group.id,
+                  edge,
+                },
+              );
               return;
             }
             const { path, source } = JSON.parse(
               event.dataTransfer.getData("application/lwr-tab"),
             );
-            execute("group.moveTab", { path, source, destination: group.id });
+            if (edge !== "center" || source !== group.id)
+              execute(edge === "center" ? "group.moveTab" : "group.tileTab", {
+                path,
+                source,
+                destination: group.id,
+                edge,
+              });
           } catch {}
         }}
       >
+        {tabDrop?.group === group.id && (
+          <div
+            className={`tab-drop-preview drop-${tabDrop.edge}`}
+            data-edge={tabDrop.edge}
+            aria-hidden="true"
+          >
+            <span>
+              {tabDrop.edge === "center"
+                ? "Move tab here"
+                : `Split ${tabDrop.edge}`}
+            </span>
+          </div>
+        )}
         <div className="tabs-bar">
           <TabStrip active={group.active}>
             {group.tabs.map((path) => {
@@ -4063,6 +4410,7 @@ export default function App() {
                   }
                   data-terminal-tab={terminalTab?.id}
                   onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData(
                       "application/lwr-tab",
                       JSON.stringify({ path, source: group.id }),
@@ -4632,6 +4980,13 @@ export default function App() {
           });
         if (fileMenu.directory)
           items.push({
+            label: "Find in Folder…",
+            id: "search.scope",
+            args: { directory },
+            disabled: !workspaceItem || !connected,
+          });
+        if (fileMenu.directory)
+          items.push({
             label: local ? "Copy Files Here…" : "Upload Files Here…",
             id: "file.import",
             args: { directory },
@@ -4809,26 +5164,83 @@ export default function App() {
                 display: sidebar ? undefined : "none",
               }}
             >
-              <Explorer
-                uploads={uploads}
-                cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
-                onContext={(path, directory, x, y) =>
-                  setFileMenu({ path, directory, x, y })
-                }
-                root={root}
-                selected={current?.path}
-                activation={explorerActivation}
-                focusSelected={!!current?.unsupported}
-                visible={sidebar}
-                caseInsensitive={local}
-                connection={connection}
-                revision={refresh}
-                onOpen={(path) => execute("file.open", { path })}
-                onFolder={() => execute("window.openFolder")}
-                onRefresh={() => execute("explorer.refresh")}
-                onError={report}
-                onCommand={execute}
-              />
+              <div
+                style={{
+                  height: "100%",
+                  display: sidebarMode === "explorer" ? undefined : "none",
+                }}
+              >
+                <Explorer
+                  navigation={
+                    <nav className="sidebar-navigation">
+                      <button
+                        aria-label="Show Explorer"
+                        aria-pressed={true}
+                        onClick={() => execute("explorer.show")}
+                      >
+                        <FolderOpen size={13} />
+                        Files
+                      </button>
+                      <button
+                        aria-label="Show Project Search"
+                        onClick={() => execute("search.open")}
+                      >
+                        <SearchIcon size={13} />
+                      </button>
+                    </nav>
+                  }
+                  uploads={uploads}
+                  cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
+                  onContext={(path, directory, x, y) =>
+                    setFileMenu({ path, directory, x, y })
+                  }
+                  root={root}
+                  selected={current?.path}
+                  activation={explorerActivation}
+                  focusSelected={!!current?.unsupported}
+                  visible={sidebar && sidebarMode === "explorer"}
+                  caseInsensitive={local}
+                  connection={connection}
+                  revision={refresh}
+                  onOpen={(path) => execute("file.open", { path })}
+                  onFolder={() => execute("window.openFolder")}
+                  onRefresh={() => execute("explorer.refresh")}
+                  onError={report}
+                  onCommand={execute}
+                />
+              </div>
+              <div
+                style={{
+                  height: "100%",
+                  display: sidebarMode === "search" ? undefined : "none",
+                }}
+              >
+                <ProjectSearch
+                  model={projectSearch}
+                  root={root}
+                  settings={settings}
+                  dirty={dirty}
+                  onCommand={execute}
+                  navigation={
+                    <nav className="sidebar-navigation">
+                      <button
+                        aria-label="Show Explorer"
+                        onClick={() => execute("explorer.show")}
+                      >
+                        <FolderOpen size={13} />
+                      </button>
+                      <button
+                        aria-label="Show Project Search"
+                        aria-pressed={true}
+                        onClick={() => execute("search.open")}
+                      >
+                        <SearchIcon size={13} />
+                        Search
+                      </button>
+                    </nav>
+                  }
+                />
+              </div>
             </div>
             <div
               className="sidebar-handle"

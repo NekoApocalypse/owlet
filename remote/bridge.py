@@ -528,7 +528,7 @@ def dispatch(method, args):
 
 def handle(request):
     try:
-        result = dispatch(request["method"], request.get("args", {}))
+        result = (search_dispatch if request["method"].startswith("search-") else dispatch)(request["method"], request.get("args", {}))
         if "id" in request:
             emit({"id": request["id"], "result": result})
     except Exception as error:
@@ -613,12 +613,14 @@ pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 try:
     for line in sys.stdin:
         request = json.loads(line)
-        if request.get("method", "").startswith("terminal-"):
+        if request.get("method", "").startswith(("terminal-", "search-")):
             handle(request)
         else:
             pool.submit(handle, request)
 finally:
     stopping = True
+    with search_lock:
+        for owner in list(search_jobs): search_stop(owner)
     listener.close()
     for pid, fd in list(terminals.values()):
         try:

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("lwr", {
   droppedPaths: (files) =>
     files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
   importFiles: (args) => ipcRenderer.invoke("files-import", args),
+  projectSearch: (action, args) => ipcRenderer.invoke("project-search", action, args),
   uploads: () => ipcRenderer.invoke("uploads-list"),
   stopUpload: (id) => ipcRenderer.invoke("upload-stop", id),
   onUploads: (callback) => subscribe("uploads-changed", callback),

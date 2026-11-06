@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -19,6 +19,7 @@ type Listing = { entries: Entry[]; path: string; next: number | null };
 import { FileIcon } from "./FileIcon";
 export { FileIcon } from "./FileIcon";
 export default function Explorer({
+  navigation,
   uploads,
   root,
   selected,
@@ -36,6 +37,7 @@ export default function Explorer({
   onCommand,
   onContext,
 }: {
+  navigation?: ReactNode;
   uploads: Upload[];
   root: string;
   selected?: string;
@@ -614,7 +616,7 @@ export default function Explorer({
       }}
     >
       <div className="section-label">
-        <span>EXPLORER</span>
+        {navigation || <span>EXPLORER</span>}
         <div className="actions">
           <button
             title="Open folder in new window"

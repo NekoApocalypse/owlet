@@ -243,3 +243,53 @@ remain until another batch starts. Folder and symbolic-link drops remain unsuppo
 
 `tests/vim-files.cjs`, `tests/remote-files-ui.cjs`, and `tests/file-operations.test.cjs` cover these paths. The SSH checks need
 `OWLET_SSH_TARGET` and optionally `OWLET_TEST_TMPDIR`; they use dedicated test directories.
+
+## Project text search
+
+`Ctrl+Shift+F` opens Search beside the editor. Type a literal keyword to search saved text, or use an Explorer folder's
+**Find in Folder…** menu. Results stream into file groups; selecting a line opens its source and selects the first match.
+Unsaved buffers are not searched or replaced. If a result no longer matches the current buffer, Owlet asks you to rerun.
+
+| Action | Command and arguments |
+| --- | --- |
+| Open Search | `search.open({query?, directory?})`; a supplied query also runs it |
+| Run search | `search.run({query?, directory?, include?, exclude?, caseSensitive?, wholeWord?, includeHidden?, includeIgnored?, maxResults?, timeoutSeconds?, maxResultMB?, maxFileSizeMB?, maxDepth?, threads?})` |
+| Stop / clear | `search.stop()` kills the search process and retains received results; `search.clear()` also clears the query/results |
+| Narrow scope | `search.scope({directory?})`; omission focuses the folder field |
+| Raise limits | `search.more()` reruns from the beginning with doubled result, byte and time limits, within the hard ceilings |
+| Open result / toggle file group | `search.openResult({index?})` uses the zero-based result index, default 0; `search.toggleFile({path?})` defaults to the first result file |
+| Inspect | `search.inspect({readOnly:true})` returns status, reason, scope, request, form and matches; omission copies JSON |
+| Return to Explorer | `explorer.show()` |
+
+The query is 1–512 characters on one line. Folder scope must resolve inside the workspace. Include/exclude fields are
+comma-separated ripgrep globs relative to that scope; an empty `exclude` disables configured exclusions. Explicit positive
+includes override ripgrep's hidden/ignore filtering; explicit excludes still win. Hidden files are otherwise excluded,
+native `.ignore`/Git ignore rules apply, and `.git` plus Owlet temporary transfer paths are always excluded. Symlinks are
+not followed. Defaults also exclude node_modules, .venv, __pycache__, dist and build directories.
+
+Settings → Project search controls the defaults: 2 workers, 2,000 matching lines, 2 MiB result data, 15 seconds,
+4 MiB per file, all depths (`search.maxDepth: 0`). Hard ceilings are respectively 4, 10,000, 8 MiB, 120 seconds,
+32 MiB and depth 100. This is independent of Quick Open's filename index and depth. There is no startup scan.
+Search completion means complete within the displayed scope and filters; a limit, cancellation or error is explicitly
+shown. A result cap can mark a search limited even when its last matching line happened to hit the cap exactly.
+
+Local packages bundle ripgrep. SSH search uses `rg` already installed on the remote host and reports an actionable error
+if unavailable; Owlet does not install it or a persistent daemon. Work runs outside the UI and file-operation workers.
+Remote results are pulled in bounded batches, and result rows are virtualized. Order is ripgrep's streaming traversal
+order, not a relevance ranking; use folder scope/include filters first for enormous projects. This version offers literal
+search and first-match navigation per matching line, not regex, cross-file replacement, PDF extraction or OCR. UTF-8 text
+is the supported navigation format. Search state is per window and is not restored after reload.
+
+## Drag-and-drop editor tiling
+
+Drag an open file or terminal tab over a pane's left, right, top or bottom edge. The translucent preview shows the new
+half-pane before dropping. Drop in the center or tab strip to move into the existing group. Panel terminal items can also
+be dropped onto editor edges. Dirty text and live terminal sessions are preserved; this never saves a file or restarts a shell.
+
+`group.tileTab({path?, source?, destination?, edge?})` is the shared UI/palette/API action. `path` is an open file path or
+terminal ID (default active tab), `source` is an optional source group ID (inferred), `destination` is the target group ID
+(default active group), and `edge` is `left`, `right`, `top` or `bottom` (default right). It returns `{group}` for the new group.
+An emptied source group collapses when moving to another group. Tiling the only tab against its own pane leaves the original
+pane empty, so the requested split still exists. Center drops use `group.moveTab` or `terminal.moveToEditor`.
+This is within one window; cross-window dragging and OS window tiling are outside this change. Explorer-file drops retain
+their existing open-in-group behavior. `tests/tab-tiling.cjs` covers native drops, mouse dragging, commands, dirty buffers and PTY identity.

@@ -51,6 +51,14 @@ const sessions = new Map();
 const windows = new Map();
 const terminals = new Map();
 const imageCache = new Map();
+const { ProjectSearch, validateSearch } = require("./project-search.cjs");
+const localSearch = new ProjectSearch();
+function disposeSearch(owner) {
+  const record = windows.get(owner);
+  localSearch.dispose(owner);
+  if (record?.session.kind === "ssh")
+    record.session.notify("search-dispose", { owner: String(owner) });
+}
 if (process.env.LWR_TEST_METRICS === "1")
   globalThis.__lwrMetrics = () => ({
     ...[...sessions.values()].find((session) => session.kind === "ssh")
@@ -107,7 +115,8 @@ function uploadQueue(event) {
   let queue = uploads.get(event.sender.id);
   if (!queue) {
     queue = new (require("./uploads.cjs").UploadQueue)((items) => {
-      if (!event.sender.isDestroyed()) event.sender.send("uploads-changed", items);
+      if (!event.sender.isDestroyed())
+        event.sender.send("uploads-changed", items);
     });
     uploads.set(event.sender.id, queue);
   }
@@ -192,6 +201,7 @@ function openWindow(root, file, session = sessionFor(), source) {
   });
   const owner = win.webContents.id;
   win.on("closed", () => {
+    disposeSearch(owner);
     uploads.get(owner)?.stop();
     uploads.delete(owner);
     windows.delete(owner);
@@ -328,6 +338,39 @@ ipcMain.handle("remote", async (event, method, args) => {
     }
   }
   return result;
+});
+ipcMain.handle("project-search", async (event, action, args = {}) => {
+  trusted(event);
+  const owner = event.sender.id,
+    record = windows.get(owner),
+    connection = record.session;
+  if (!["start", "poll", "stop"].includes(action))
+    throw Error("Unknown search action.");
+  if (action === "start") {
+    const options = validateSearch(args);
+    record.searchId = options.id;
+    const root = record.root || connection.state.home;
+    if (!root) throw Error("Open a workspace first.");
+    return connection.kind === "ssh"
+      ? connection.request("search-start", {
+          ...options,
+          root,
+          owner: String(owner),
+        })
+      : localSearch.start(owner, root, options);
+  }
+  if (typeof args.id !== "string" || record.searchId !== args.id) {
+    if (action === "stop") return false;
+    throw Error("Search no longer exists.");
+  }
+  return connection.kind === "ssh"
+    ? connection.request(`search-${action}`, {
+        owner: String(owner),
+        id: args.id,
+      })
+    : action === "poll"
+      ? localSearch.poll(owner, args.id)
+      : localSearch.stop(owner, args.id);
 });
 ipcMain.handle("uploads-list", (event) => {
   trusted(event);
@@ -630,6 +673,7 @@ ipcMain.handle("reload", async (event, state) => {
     }
   record.dirty = false;
   record.reloadState = reloadState;
+  disposeSearch(event.sender.id);
   imageCache.clear();
   event.sender.reload();
   return true;

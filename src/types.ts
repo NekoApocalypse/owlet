@@ -114,6 +114,7 @@ declare global {
   interface Window {
     lwr: {
       about(): Promise<AboutInfo>;
+      projectSearch(action: "start" | "poll" | "stop", args: Record<string, unknown>): Promise<any>;
       commandHistory(): Promise<string[]>;
       rememberCommand(id: string): Promise<string[]>;
       clearCommandHistory(): Promise<string[]>;

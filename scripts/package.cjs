@@ -72,13 +72,26 @@ const { execFileSync } = require("node:child_process");
     path.join(destination, "LICENSE.lucide"),
   );
   // node-pty ships its native ConPTY binaries; no Node or compiler is needed by users.
-  for (const moduleName of ["node-pty", "jsonc-parser"]) {
+  for (const moduleName of [
+    "node-pty",
+    "jsonc-parser",
+    "@vscode/ripgrep",
+    `@vscode/ripgrep-${process.platform}-${process.arch}`,
+  ]) {
     fs.cpSync(
       path.join(root, "node_modules", moduleName),
       path.join(appDir, "node_modules", moduleName),
       { recursive: true },
     );
   }
+  fs.copyFileSync(
+    path.join(root, "node_modules/@vscode/ripgrep/LICENSE"),
+    path.join(destination, "LICENSE.vscode-ripgrep"),
+  );
+  fs.copyFileSync(
+    path.join(root, "assets/LICENSE.ripgrep.txt"),
+    path.join(destination, "LICENSE.ripgrep"),
+  );
   for (const directory of ["dist", "electron", "remote", "assets"]) {
     const generatedTarget = path.resolve(appDir, directory);
     if (

@@ -25,7 +25,8 @@ function validate(text) {
           value < definition.min ||
           value > definition.max ||
           (!definition.step && !Number.isInteger(value)))) ||
-      (typeof value === "string" && (!value.trim() || value.length > 256)) ||
+      (typeof value === "string" &&
+        ((!value.trim() && !definition.allowEmpty) || value.length > 256)) ||
       (definition.enum && !definition.enum.includes(value))
     )
       throw new Error(`Invalid value for ${key}.`);

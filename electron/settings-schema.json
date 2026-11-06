@@ -103,6 +103,61 @@
     "min": 0,
     "max": 100000
   },
+  "search.maxResults": {
+    "group": "Project search",
+    "label": "Maximum result lines",
+    "description": "Stop with partial results at this many matching lines.",
+    "default": 2000,
+    "min": 1,
+    "max": 10000
+  },
+  "search.timeoutSeconds": {
+    "group": "Project search",
+    "label": "Time limit",
+    "description": "Seconds per search. Limited searches retain their results.",
+    "default": 15,
+    "min": 1,
+    "max": 120
+  },
+  "search.maxResultMB": {
+    "group": "Project search",
+    "label": "Result size limit",
+    "description": "Maximum MiB of result snippets per search.",
+    "default": 2,
+    "min": 1,
+    "max": 8
+  },
+  "search.maxFileSizeMB": {
+    "group": "Project search",
+    "label": "Maximum file size",
+    "description": "Skip larger files (MiB). The source editor supports files up to 4 MiB.",
+    "default": 4,
+    "min": 1,
+    "max": 32
+  },
+  "search.maxDepth": {
+    "group": "Project search",
+    "label": "Maximum depth",
+    "description": "0 searches all depths. Independent of the Ctrl+P filename index.",
+    "default": 0,
+    "min": 0,
+    "max": 100
+  },
+  "search.threads": {
+    "group": "Project search",
+    "label": "Search workers",
+    "description": "Maximum ripgrep workers per search.",
+    "default": 2,
+    "min": 1,
+    "max": 4
+  },
+  "search.exclude": {
+    "group": "Project search",
+    "label": "Excluded paths",
+    "description": "Comma-separated globs, relative to the search folder. Empty searches all non-ignored paths. Git metadata is always excluded.",
+    "default": "**/node_modules/**,**/.venv/**,**/__pycache__/**,**/dist/**,**/build/**",
+    "allowEmpty": true
+  },
   "files.quickOpenMaxDepth": {
     "group": "Files",
     "label": "Quick Open maximum depth",
