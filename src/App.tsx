@@ -3281,8 +3281,15 @@ export default function App() {
           const path = args.path ?? currentGroup.active;
           const source =
             args.source ??
-            groups(layoutRef.current).find((group) => group.tabs.includes(path))
-              ?.id;
+            (
+              groups(layoutRef.current).find(
+                (group) =>
+                  group.id === groupRef.current && group.tabs.includes(path),
+              ) ||
+              groups(layoutRef.current).find((group) =>
+                group.tabs.includes(path),
+              )
+            )?.id;
           const terminal = terminalsRef.current.find(
             (item) => item.id === path,
           );

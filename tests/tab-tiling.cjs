@@ -192,6 +192,18 @@ async function until(fn) {
     "tiling never saves dirty buffers",
   );
   await page.screenshot({ path: path.join(base, "tiled-workspace.png") });
+  await cmd("file.open", { path: root + "/a.md", group: right });
+  await cmd("group.tileTab");
+  assert.ok(
+    (await state()).groups
+      .find((group) => group.id === left)
+      ?.tabs.includes(root + "/a.md"),
+    "palette tiles the active copy when a file is open in multiple groups",
+  );
+  assert.equal(
+    (await state()).groups.find((group) => group.id === right)?.tabs.length,
+    0,
+  );
   console.log(
     JSON.stringify({
       passed: true,
