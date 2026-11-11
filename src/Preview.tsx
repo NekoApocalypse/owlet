@@ -146,7 +146,7 @@ md.renderer.rules.image = (tokens, index) => {
   const token = tokens[index];
   const source = String(token.attrGet("src") || "");
   const alt = token.content || "Image";
-  return `<span class="remote-image" data-source="${md.utils.escapeHtml(source)}"><img alt="${md.utils.escapeHtml(alt)}" /><span class="image-caption">${md.utils.escapeHtml(alt)}</span></span>`;
+  return `<span class="remote-image" data-source="${md.utils.escapeHtml(source)}" aria-busy="true"><span class="image-load-state" role="status"><span class="image-loading-spinner file-loading-spinner" aria-hidden="true"></span><span class="image-load-label">Loading image…</span></span><img alt="${md.utils.escapeHtml(alt)}" /><span class="image-caption">${md.utils.escapeHtml(alt)}</span></span>`;
 };
 md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
   const title = tokens[index + 1]?.content || "";
@@ -220,6 +220,11 @@ export default function Preview({
       image.dataset.imageIndex = String(index);
       image.dataset.imageReady = "false";
       image.classList.remove("image-error");
+      image.setAttribute("aria-busy", "true");
+      const loadState = image.querySelector<HTMLElement>(".image-load-state")!;
+      const loadLabel = image.querySelector<HTMLElement>(".image-load-label")!;
+      loadState.hidden = false;
+      loadLabel.textContent = "Loading image…";
       image.querySelector(".image-expand")?.remove();
       image.querySelector(".image-caption")!.textContent = img.alt;
       const expand = document.createElement("button");
@@ -232,16 +237,22 @@ export default function Preview({
       img.onload = () => {
         if (cancelled) return;
         image.dataset.imageReady = "true";
+        image.setAttribute("aria-busy", "false");
+        loadState.hidden = true;
         expand.disabled = false;
       };
-      img.onerror = () => {
+      const failed = (reason: string) => {
         if (cancelled) return;
         image.dataset.imageReady = "false";
+        image.setAttribute("aria-busy", "false");
+        loadState.hidden = true;
         expand.disabled = true;
+        img.removeAttribute("src");
         image.classList.add("image-error");
         image.querySelector(".image-caption")!.textContent =
-          `${source}: Image could not be decoded`;
+          `${source}: ${reason}`;
       };
+      img.onerror = () => failed("Image could not be decoded");
       window.lwr
         .remote<{ url: string; path: string }>("image", {
           source,
@@ -250,15 +261,12 @@ export default function Preview({
         })
         .then((result) => {
           if (cancelled) return;
+          loadLabel.textContent = "Rendering image…";
           image.querySelector("img")!.src = result.url;
           image.title = result.path;
         })
         .catch((error) => {
-          if (!cancelled) {
-            image.classList.add("image-error");
-            image.querySelector(".image-caption")!.textContent =
-              `${source}: ${String(error).replace(/^Error: /, "")}`;
-          }
+          failed(String(error).replace(/^Error: /, ""));
         });
     }
     const diagrams = [

@@ -128,6 +128,8 @@ export default function PreviewFind({
           "math",
           "math *",
           "button",
+          ".image-load-state",
+          ".image-load-state *",
           ".image-error",
         ],
         filter: () => {

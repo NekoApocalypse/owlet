@@ -1285,6 +1285,29 @@ a .remote-image[data-image-ready="true"] img {
 .remote-image img:not([src]) {
   display: none;
 }
+.image-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: 72px;
+  padding: var(--space-12);
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.image-load-state[hidden] {
+  display: none;
+}
+.image-loading-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+}
 .image-caption {
   display: block;
   color: #9dadce;
