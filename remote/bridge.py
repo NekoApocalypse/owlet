@@ -145,20 +145,16 @@ def list_dir(path, offset=0):
     path = resolve(path)
     entries = []
     with os.scandir(path) as directory:
-        for index, entry in enumerate(directory):
-            if index < offset:
-                continue
+        for entry in directory:
             try:
                 directory_entry = entry.is_dir()
                 entries.append({"name": entry.name, "path": entry.path, "directory": directory_entry, "symlink": entry.is_symlink()})
             except OSError:
                 continue
-            if len(entries) >= 101:
-                break
-    more = len(entries) > 100
-    entries = entries[:100]
-    entries.sort(key=lambda item: (not item["directory"], item["name"].lower()))
-    return {"path": path, "entries": entries, "next": offset + 100 if more else None}
+    # Sort before slicing so later pages extend the same directory-wide order.
+    entries.sort(key=lambda item: (not item["directory"], item["name"].lower(), item["name"]))
+    more = offset + 100 < len(entries)
+    return {"path": path, "entries": entries[offset:offset + 100], "next": offset + 100 if more else None}
 
 def save_file(args):
     path = os.path.realpath(resolve(args["path"]))
