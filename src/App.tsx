@@ -32,6 +32,7 @@ import {
   Trash2,
   Pencil,
   Settings as SettingsIcon,
+  Search as SearchIcon,
 } from "lucide-react";
 import Explorer, { FileIcon } from "./Explorer";
 import Editor, {
@@ -39,13 +40,18 @@ import Editor, {
   vimCommand,
   sourceView,
   sourceClipboard,
+  revealSearchMatch,
 } from "./Editor";
-import CommandPalette, { useCommands } from "./commands";
+import CommandPalette, { useCommands, type Command } from "./commands";
 import RecentWorkspaces from "./RecentWorkspaces";
 import Welcome from "./Welcome";
 import TabStrip from "./TabStrip";
 import DiagramViewer, { type DiagramView } from "./DiagramViewer";
 import SettingsView from "./SettingsView";
+import ProjectSearch, { useProjectSearch } from "./ProjectSearch";
+import { dropEdge, tileOpenTab, type TileEdge } from "./tiling";
+import Uploads, { uploading } from "./Uploads";
+import type { Upload } from "./types";
 import QuickOpen, { useFileIndex, searchFiles } from "./QuickOpen";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { pdfCommand, type PdfAction } from "./pdfCommands";
@@ -78,6 +84,7 @@ import {
   type Group,
   type Layout,
   type RemoteFile,
+  type ReloadState,
 } from "./types";
 import {
   groups,
@@ -239,7 +246,40 @@ function ImageViewer({
 }
 
 export default function App() {
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  const [uploadsVisible, setUploadsVisible] = useState(false);
+  const uploadsRef = useRef<Upload[]>([]);
+  useEffect(() => {
+    let received = false;
+    const update = (items: Upload[]) => {
+      const previous = uploadsRef.current;
+      if (items.some((item) => !previous.some((old) => old.id === item.id)))
+        setUploadsVisible(true);
+      if (
+        items.some(
+          (item) =>
+            !uploading(item) &&
+            previous.some((old) => old.id === item.id && uploading(old)),
+        )
+      )
+        setRefresh((value) => value + 1);
+      uploadsRef.current = items;
+      setUploads(items);
+    };
+    const unsubscribe = window.lwr.onUploads((items) => {
+      received = true;
+      update(items);
+    });
+    void window.lwr
+      .uploads()
+      .then((items) => {
+        if (!received) update(items);
+      })
+      .catch(report);
+    return unsubscribe;
+  }, []);
   const [diagramView, setDiagramView] = useState<DiagramView | null>(null);
+  const nextExpandedView = useRef(0);
   const [recent, setRecent] = useState<RecentWorkspace[]>([]);
   const [recentPicker, setRecentPicker] = useState<"open" | "remove" | null>(
     null,
@@ -277,6 +317,22 @@ export default function App() {
   });
   const [activeGroup, setActiveGroup] = useState(1);
   const [sidebar, setSidebar] = useState(true);
+  const [tabDrop, setTabDrop] = useState<{
+    group: number;
+    edge: TileEdge | "center";
+  } | null>(null);
+  useEffect(() => {
+    const clear = () => setTabDrop(null);
+    window.addEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+    };
+  }, []);
+  const [sidebarMode, setSidebarMode] = useState<"explorer" | "search">(
+    "explorer",
+  );
   const [sidebarWidth, setSidebarWidth] = useState(252);
   const sidebarResize = useRef<{
     pointer: number;
@@ -284,6 +340,7 @@ export default function App() {
     width: number;
   } | null>(null);
   const [terminalVisible, setTerminalVisible] = useState(true);
+  const [restoringConnection, setRestoringConnection] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(220);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSession[]>(
     [],
@@ -428,6 +485,7 @@ export default function App() {
   async function openSettings(
     mode: "source" | "preview" = "preview",
     group = groupRef.current,
+    background = false,
   ) {
     if (
       !Number.isInteger(group) ||
@@ -436,13 +494,15 @@ export default function App() {
       throw new Error("Choose an existing tab group.");
     if (!docsRef.current[SETTINGS_PATH]) {
       const file = await readDocument(SETTINGS_PATH);
-      const doc: Document = { ...file, saved: file.text, mode: "preview" };
+      const doc: Document = { ...file, saved: file.text, mode };
       const next = { ...docsRef.current, [SETTINGS_PATH]: doc };
       docsRef.current = next;
       setDocuments(next);
     }
-    activate(SETTINGS_PATH, group);
-    setMode(SETTINGS_PATH, mode, group);
+    if (!background) {
+      activate(SETTINGS_PATH, group);
+      setMode(SETTINGS_PATH, mode, group);
+    }
   }
   function applySettings(file: RemoteFile) {
     const values = resolveSettings(file.text);
@@ -456,13 +516,24 @@ export default function App() {
     const doc = docsRef.current[SETTINGS_PATH];
     patch(SETTINGS_PATH, { text: editSetting(doc.text, key, value) });
   }
-  async function openFile(path: string, group = groupRef.current) {
-    if (path === SETTINGS_PATH) return openSettings("preview", group);
+  async function openFile(
+    path: string,
+    group = groupRef.current,
+    restoreMode?: Document["mode"],
+    ready?: Promise<unknown>,
+  ) {
+    const background = restoreMode !== undefined;
+    if (path === SETTINGS_PATH)
+      return openSettings(
+        restoreMode === "source" ? "source" : "preview",
+        group,
+        background,
+      );
     if (!groups(layoutRef.current).some((g) => g.id === group))
       throw new Error("Choose an existing tab group.");
     if (docsRef.current[path]) {
       if (docsRef.current[path].unsupported) setSidebar(true);
-      activate(path, group);
+      if (!background) activate(path, group);
       return opening.current.get(path);
     }
     const placeholder: Document = {
@@ -472,20 +543,23 @@ export default function App() {
       revision: "",
       stamp: "",
       loading: true,
-      mode: isMarkdown(path)
-        ? (settingsRef.current["markdown.defaultView"] as Document["mode"])
-        : isImage(path) || isPdf(path) || isHtml(path)
-          ? "preview"
-          : "source",
+      mode:
+        restoreMode ||
+        (isMarkdown(path)
+          ? (settingsRef.current["markdown.defaultView"] as Document["mode"])
+          : isImage(path) || isPdf(path) || isHtml(path)
+            ? "preview"
+            : "source"),
     };
     docsRef.current = { ...docsRef.current, [path]: placeholder };
     setDocuments(docsRef.current);
-    activate(path, group);
+    if (!background) activate(path, group);
     let pending = opening.current.get(path);
     if (!pending) {
       pending = (async () => {
         markBusy(path, true);
         try {
+          if (ready) await ready;
           let document: Document;
           if (isPdf(path)) {
             const result = await window.lwr.remote<{
@@ -526,13 +600,15 @@ export default function App() {
               text,
               saved: text,
               lineEnding: result.text.includes("\r\n") ? "\r\n" : "\n",
-              mode: isMarkdown(path)
-                ? (settingsRef.current[
-                    "markdown.defaultView"
-                  ] as Document["mode"])
-                : isHtml(path)
-                  ? "preview"
-                  : "source",
+              mode:
+                restoreMode ||
+                (isMarkdown(path)
+                  ? (settingsRef.current[
+                      "markdown.defaultView"
+                    ] as Document["mode"])
+                  : isHtml(path)
+                    ? "preview"
+                    : "source"),
             };
           }
           return document;
@@ -1015,6 +1091,7 @@ export default function App() {
       groups(next).find((group) => group.id === groupId)?.tabs.length === 0;
     const result =
       empty && groups(next).length > 1 ? removeGroup(next, groupId)! : next;
+    layoutRef.current = result;
     setLayout(result);
     if (!groups(result).some((group) => group.id === activeGroup))
       setActiveGroup(groups(result)[0].id);
@@ -1028,11 +1105,16 @@ export default function App() {
     } else if (discard)
       patch(path, { text: docsRef.current[path]?.saved || "" });
   }
-  function closeFile(path: string, groupId: number) {
+  function closeFile(
+    path: string,
+    groupId: number,
+    resume?: () => void,
+  ): boolean {
     if (terminalsRef.current.some((item) => item.id === path)) {
-      execute("terminal.close", { id: path });
-      return;
+      return closeTerminal(path, resume);
     }
+    if (saving.current.has(path))
+      throw new Error("Wait for this file to finish saving before closing it");
     const doc = docsRef.current[path];
     const occurrences = groups(layoutRef.current).filter((group) =>
       group.tabs.includes(path),
@@ -1042,9 +1124,127 @@ export default function App() {
         title: `Discard changes to ${basename(path)}?`,
         detail: "The file has not been updated with these edits.",
         confirm: "Discard changes",
-        action: () => performClose(path, groupId),
+        action: () => {
+          if (saving.current.has(path))
+            throw new Error(
+              "Wait for this file to finish saving before closing it",
+            );
+          performClose(path, groupId);
+          resume?.();
+        },
       });
-    } else performClose(path, groupId);
+      return false;
+    }
+    performClose(path, groupId);
+    return true;
+  }
+  function closeOthers(path: string, groupId: number) {
+    const target = groups(layoutRef.current).find((g) => g.id === groupId);
+    if (!target || !target.tabs.includes(path))
+      throw new Error("Choose a tab in this group");
+    // Snapshot the targets: tabs opened while a confirmation is pending survive.
+    const remaining = target.tabs.filter((tab) => tab !== path);
+    const next = () => {
+      while (remaining.length) {
+        const group = groups(layoutRef.current).find((g) => g.id === groupId);
+        if (!group?.tabs.includes(path)) return;
+        const other = remaining.shift()!;
+        if (group.tabs.includes(other) && !closeFile(other, groupId, next))
+          return;
+      }
+    };
+    next();
+  }
+  function reloadWindow() {
+    if (saving.current.size)
+      throw new Error("Wait for saves to finish before reloading");
+    const restoredLayout = groups(layoutRef.current).reduce(
+      (next, group) =>
+        mapGroup(next, group.id, (g) => {
+          const tabs = g.tabs.filter(
+            (path) => !docsRef.current[path]?.unsupported,
+          );
+          return {
+            ...g,
+            tabs,
+            active: g.active && tabs.includes(g.active) ? g.active : tabs[0],
+          };
+        }),
+      layoutRef.current,
+    );
+    return window.lwr.reload({
+      version: 1,
+      layout: restoredLayout,
+      activeGroup: groupRef.current,
+      modes: Object.fromEntries(
+        Object.values(docsRef.current).map((doc) => [doc.path, doc.mode]),
+      ),
+      viewModes,
+      previewRatios,
+      previewZoom,
+      sidebar,
+      sidebarWidth,
+      terminalVisible,
+      terminalHeight,
+      terminals: terminalsRef.current.map(({ id, name, path, location }) => ({
+        id,
+        name,
+        path,
+        location,
+      })),
+      activeTerminal,
+      terminalSerial: terminalSerial.current,
+    });
+  }
+  function restoreWindow(state: ReloadState, ready: Promise<unknown>) {
+    layoutRef.current = state.layout;
+    groupRef.current = state.activeGroup;
+    setLayout(state.layout);
+    setActiveGroup(state.activeGroup);
+    setViewModes(state.viewModes);
+    setPreviewRatios(state.previewRatios);
+    setPreviewZoom(state.previewZoom);
+    setSidebar(state.sidebar);
+    setSidebarWidth(state.sidebarWidth);
+    setTerminalHeight(state.terminalHeight);
+    setTerminalVisible(state.terminalVisible);
+    terminalSerial.current = state.terminalSerial;
+    const terminals = state.terminals.map((item) => ({
+      ...item,
+      status: "starting" as const,
+      restart: 0,
+    }));
+    terminalsRef.current = terminals;
+    setTerminalSessions(terminals);
+    setActiveTerminal(state.activeTerminal);
+    const walk = (node: Layout) => {
+      if (node.kind === "group")
+        nextGroup = Math.max(nextGroup, node.group.id + 1);
+      else {
+        nextSplit = Math.max(nextSplit, node.id + 1);
+        walk(node.first);
+        walk(node.second);
+      }
+    };
+    walk(state.layout);
+    const files = new Map<string, number>();
+    // Active documents start loading first. Every openFile call creates its
+    // loading tab synchronously; completions do not change focus or tab order.
+    const ordered = groups(state.layout).sort(
+      (a, b) =>
+        Number(b.id === state.activeGroup) - Number(a.id === state.activeGroup),
+    );
+    for (const group of ordered)
+      for (const path of [group.active, ...group.tabs])
+        if (path && !files.has(path) && !terminals.some((t) => t.id === path))
+          files.set(path, group.id);
+    for (const [path, group] of files)
+      void openFile(
+        path,
+        group,
+        state.modes[path] || (path === SETTINGS_PATH ? "preview" : "source"),
+        ready,
+      ).catch(report);
   }
   function splitGroup(group: Group, axis: "row" | "column", before = false) {
     const id = nextGroup++;
@@ -1118,6 +1318,13 @@ export default function App() {
     setActiveGroup(destination);
   }
   const connected = connection.status === "connected";
+  const projectSearch = useProjectSearch(root, connected, settings);
+  function showSearch(args: Record<string, any> = {}) {
+    setSidebar(true);
+    setSidebarMode("search");
+    projectSearch.configure(args);
+    requestAnimationFrame(() => projectSearch.input.current?.focus());
+  }
   const local = connection.kind === "local";
   function terminalById(id = selectedTerminal?.id) {
     const item = terminalsRef.current.find((item) => item.id === id);
@@ -1145,7 +1352,7 @@ export default function App() {
     return id;
   }
   function detachTerminalTab(id: string) {
-    setLayout((previous) => {
+    const detach = (previous: Layout) => {
       let next = previous;
       for (const group of groups(previous))
         next = mapGroup(next, group.id, (item) => {
@@ -1157,7 +1364,34 @@ export default function App() {
           };
         });
       return next;
-    });
+    };
+    const next = detach(layoutRef.current);
+    layoutRef.current = next;
+    setLayout(next);
+  }
+  function closeTerminal(id?: string, resume?: () => void): boolean {
+    const item = terminalById(id);
+    const close = () => {
+      detachTerminalTab(item.id);
+      setTerminalSessions((items) =>
+        items.filter((entry) => entry.id !== item.id),
+      );
+    };
+    if (["starting", "running"].includes(item.status)) {
+      setPrompt({
+        title: `Kill ${item.name}?`,
+        detail:
+          "This ends this shell and any agent or process running in it. Other terminals stay open.",
+        confirm: "Kill terminal",
+        action: () => {
+          close();
+          resume?.();
+        },
+      });
+      return false;
+    }
+    close();
+    return true;
   }
   function revealTerminal(item: TerminalSession) {
     setActiveTerminal(item.id);
@@ -1190,10 +1424,182 @@ export default function App() {
     connected,
     report,
   );
-  const { api: commandApi, execute } = useCommands(
+  const {
+    api: commandApi,
+    execute,
+    executePalette,
+    history: commandHistory,
+  } = useCommands(
     [
       ...appearance.commands,
       ...about.commands,
+      {
+        id: "search.open",
+        title: "Search: Find in Project",
+        shortcut: "Ctrl+Shift+F",
+        keywords: ["Find in Files", "Full text", "Workspace search"],
+        parameters: {
+          query: "Optional literal query",
+          directory:
+            "Optional search folder, relative to workspace or absolute",
+        },
+        run: (args) => {
+          showSearch(args);
+          if (args.query) return projectSearch.run(args);
+        },
+      },
+      {
+        id: "search.run",
+        title: "Search: Run or Rerun Project Search",
+        enabled: connected && !!root,
+        parameters: {
+          query: "Literal single-line query; defaults to search field",
+          directory: "Folder within workspace",
+          include: "Comma-separated include globs",
+          exclude:
+            "Comma-separated exclude globs; empty disables configured exclusions",
+          caseSensitive: "Boolean",
+          wholeWord: "Boolean",
+          includeHidden: "Boolean",
+          includeIgnored: "Boolean",
+          maxResults: "1–10000 matching lines",
+          timeoutSeconds: "1–120 seconds",
+          maxResultMB: "1–8 MiB",
+          maxFileSizeMB: "1–32 MiB",
+          maxDepth: "0 for all depths; otherwise 1–100",
+          threads: "1–4 workers",
+        },
+        run: (args) => {
+          setSidebar(true);
+          setSidebarMode("search");
+          return projectSearch.run(args);
+        },
+      },
+      {
+        id: "search.stop",
+        title: "Search: Stop Project Search",
+        run: () => projectSearch.stop(),
+      },
+      {
+        id: "search.clear",
+        title: "Search: Clear Project Search",
+        run: () => projectSearch.clear(),
+      },
+      {
+        id: "search.more",
+        title: "Search: Rerun with Higher Limits",
+        enabled: connected && !!projectSearch.state.request,
+        run: () => projectSearch.more(),
+      },
+      {
+        id: "search.scope",
+        title: "Search: Find in Folder…",
+        parameters: {
+          directory:
+            "Folder within workspace; omission focuses the scope field",
+        },
+        run: (args) => {
+          showSearch(args);
+          if (args.directory !== undefined) {
+            if (projectSearch.form.query) return projectSearch.run(args);
+          } else
+            requestAnimationFrame(() =>
+              document
+                .querySelector<HTMLInputElement>(
+                  'input[aria-label="Search folder"]',
+                )
+                ?.focus(),
+            );
+        },
+      },
+      {
+        id: "search.toggleFile",
+        title: "Search: Expand or Collapse File Results",
+        parameters: { path: "Result file path; defaults to first result file" },
+        enabled: projectSearch.state.matches.length > 0,
+        run: (args) => {
+          const path = args.path ?? projectSearch.state.matches[0]?.path;
+          if (!projectSearch.state.matches.some((item) => item.path === path))
+            throw Error("Choose a file from the search results.");
+          projectSearch.toggleFile(path);
+        },
+      },
+      {
+        id: "search.inspect",
+        title: "Search: Inspect Project Search",
+        parameters: { readOnly: "True returns state; otherwise copies JSON" },
+        run: (args) => {
+          const result = { ...projectSearch.state, form: projectSearch.form };
+          if (!args.readOnly)
+            void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+          return result;
+        },
+      },
+      {
+        id: "search.openResult",
+        title: "Search: Open Matching Line",
+        parameters: {
+          index: "Zero-based matching-line index; defaults to first result",
+        },
+        enabled: projectSearch.state.matches.length > 0,
+        run: async (args) => {
+          const index = args.index ?? 0;
+          if (
+            !Number.isInteger(index) ||
+            index < 0 ||
+            !projectSearch.state.matches[index]
+          )
+            throw Error("Choose a valid search result.");
+          const match = projectSearch.state.matches[index],
+            group = groupRef.current;
+          await openFile(match.path, group);
+          if (
+            groups(layoutRef.current).find((item) => item.id === group)
+              ?.active !== match.path
+          )
+            return;
+          const doc = docsRef.current[match.path];
+          if (!doc || doc.loadError || doc.unsupported)
+            throw Error(
+              doc?.loadError ||
+                doc?.unsupported ||
+                "Unable to open this result.",
+            );
+          setMode(match.path, "source", group);
+          for (let attempt = 0; attempt < 60; attempt++) {
+            await new Promise((resolve) => setTimeout(resolve, 16));
+            if (
+              groups(layoutRef.current).find((item) => item.id === group)
+                ?.active !== match.path
+            )
+              return;
+            const result = revealSearchMatch(
+              `${group}:${match.path}`,
+              match.line,
+              match.column,
+              match.match,
+            );
+            if (result === "ready") return true;
+            if (result === "stale") {
+              setMessage(
+                "This file changed since the search. Rerun to update the matching line.",
+              );
+              return false;
+            }
+          }
+          throw Error(
+            "The source editor is not ready. Try opening the result again.",
+          );
+        },
+      },
+      {
+        id: "explorer.show",
+        title: "View: Show Explorer",
+        run: () => {
+          setSidebar(true);
+          setSidebarMode("explorer");
+        },
+      },
       {
         id: "project.settings.open",
         title: "Project: Open .owlet/settings.json",
@@ -1229,6 +1635,30 @@ export default function App() {
         title: "Show Command Palette",
         shortcut: "Ctrl+Shift+P / F1",
         run: () => setPaletteVisible(true),
+      },
+      {
+        id: "commands.recent",
+        title: "Preferences: Copy Recent Commands",
+        keywords: ["history", "command palette"],
+        parameters: {
+          readOnly: "true returns the command IDs without copying",
+        },
+        run: async (args) => {
+          const history = await window.lwr.commandHistory();
+          if (!args.readOnly) {
+            await navigator.clipboard.writeText(
+              JSON.stringify(history, null, 2),
+            );
+            setMessage("Copied recent commands");
+          }
+          return history;
+        },
+      },
+      {
+        id: "commands.clearRecent",
+        title: "Preferences: Clear Recent Commands",
+        keywords: ["history", "command palette"],
+        run: () => window.lwr.clearCommandHistory(),
       },
       {
         id: "diagram.open",
@@ -1271,6 +1701,8 @@ export default function App() {
           svg.style.height = `${height}px`;
           svg.style.maxWidth = "none";
           setDiagramView({
+            id: ++nextExpandedView.current,
+            kind: "diagram",
             svg: svg.outerHTML,
             title: `${basename(file || "Markdown")} · Diagram ${index + 1}`,
             width,
@@ -1282,133 +1714,193 @@ export default function App() {
         },
       },
       {
-        id: "diagram.close",
-        title: "Diagram: Close Expanded View",
-        enabled: !!diagramView,
-        run: () => setDiagramView(null),
-      },
-      ...(["fit", "actualSize"] as const).map((action) => ({
-        id: `diagram.${action}`,
-        title:
-          action === "fit"
-            ? "Diagram: Fit to View"
-            : "Diagram: Actual Size (100%)",
-        enabled: !!diagramView,
-        run: () => {
-          const rect = document
-            .querySelector(".diagram-canvas")
-            ?.getBoundingClientRect();
-          if (!rect) return;
-          setDiagramView((value) => {
-            if (!value) return value;
-            const scale =
-              action === "fit"
-                ? Math.max(
-                    0.02,
-                    Math.min(
-                      (rect.width - 48) / value.width,
-                      (rect.height - 48) / value.height,
-                      16,
-                    ),
-                  )
-                : 1;
-            return {
-              ...value,
-              scale,
-              x: (rect.width - value.width * scale) / 2,
-              y: (rect.height - value.height * scale) / 2,
-            };
+        id: "preview.image.open",
+        title: "Markdown: Expand Image…",
+        keywords: ["Fullscreen image", "Zoom image", "Picture"],
+        parameters: {
+          index:
+            "Zero-based image index; defaults to first image in the preview",
+          group: "Optional preview group ID",
+        },
+        enabled: groups(layout).some(
+          (group) => !!group.active && isMarkdown(group.active),
+        ),
+        run: (args) => {
+          const group = args.group ?? currentGroup.id;
+          const index = args.index ?? 0;
+          if (!Number.isInteger(index) || index < 0 || !Number.isInteger(group))
+            throw new Error("Choose a valid image and group");
+          const source = document.querySelectorAll<HTMLImageElement>(
+            `[data-group="${group}"] .markdown-preview .remote-image img`,
+          )[index];
+          if (
+            !source?.complete ||
+            !source.naturalWidth ||
+            !source.naturalHeight
+          )
+            throw new Error(
+              "Open the Markdown preview and wait for its image to load",
+            );
+          const src = source.currentSrc || source.src;
+          if (!/^data:image\//i.test(src))
+            throw new Error("This image is not available for expansion");
+          const file = groups(layoutRef.current).find(
+            (item) => item.id === group,
+          )?.active;
+          setDiagramView({
+            id: ++nextExpandedView.current,
+            kind: "image",
+            src,
+            alt: source.alt,
+            title: `${basename(file || "Markdown")} · ${source.alt || `Image ${index + 1}`}`,
+            width: source.naturalWidth,
+            height: source.naturalHeight,
+            scale: 1,
+            x: 0,
+            y: 0,
           });
         },
-      })),
-      ...(["zoomIn", "zoomOut"] as const).map((action) => ({
-        id: `diagram.${action}`,
-        title: action === "zoomIn" ? "Diagram: Zoom In" : "Diagram: Zoom Out",
-        enabled: !!diagramView,
-        run: () =>
-          commandApi.execute("diagram.zoom", {
-            factor: action === "zoomIn" ? 1.25 : 0.8,
-          }),
-      })),
-      {
-        id: "diagram.zoom",
-        title: "Diagram: Set Zoom…",
-        enabled: !!diagramView,
-        parameters: {
-          scale: "Absolute scale (1 = 100%), clamped to 0.02–16",
-          factor: "Optional relative multiplier instead of scale",
-          x: "Optional anchor x in canvas pixels",
-          y: "Optional anchor y in canvas pixels",
-        },
-        run: (args) => {
-          const apply = (scale?: number, factor?: number) => {
-            if (
-              (scale !== undefined &&
-                (!Number.isFinite(scale) || scale <= 0)) ||
-              (factor !== undefined &&
-                (!Number.isFinite(factor) || factor <= 0))
-            )
-              throw new Error("Choose a positive zoom");
-            const rect = document
-              .querySelector(".diagram-canvas")
-              ?.getBoundingClientRect();
-            if (!rect) return;
-            const x = args.x ?? rect.width / 2,
-              y = args.y ?? rect.height / 2;
-            if (!Number.isFinite(x) || !Number.isFinite(y))
-              throw new Error("Invalid zoom anchor");
-            setDiagramView((value) => {
-              if (!value) return value;
-              const next = Math.max(
-                0.02,
-                Math.min(16, scale ?? value.scale * (factor ?? 1)),
-              );
-              return {
-                ...value,
-                scale: next,
-                x: x - ((x - value.x) * next) / value.scale,
-                y: y - ((y - value.y) * next) / value.scale,
-              };
-            });
-          };
-          return args.scale === undefined && args.factor === undefined
-            ? setPathPrompt({
-                title: "Diagram zoom (%)",
-                value: String(Math.round(diagramView!.scale * 100)),
-                action: (value) => apply(Number(value) / 100),
-              })
-            : apply(args.scale, args.factor);
-        },
       },
-      {
-        id: "diagram.pan",
-        title: "Diagram: Pan…",
-        enabled: !!diagramView,
-        parameters: {
-          dx: "Horizontal movement in pixels",
-          dy: "Vertical movement in pixels",
+      ...(["diagram", "preview.image"] as const).flatMap(
+        (prefix): Command[] => {
+          const label = prefix === "diagram" ? "Diagram" : "Preview Image";
+          const enabled =
+            diagramView?.kind === (prefix === "diagram" ? "diagram" : "image");
+          return [
+            {
+              id: `${prefix}.close`,
+              title: `${label}: Close Expanded View`,
+              enabled,
+              run: () => setDiagramView(null),
+            },
+            ...(["fit", "actualSize"] as const).map((action) => ({
+              id: `${prefix}.${action}`,
+              title:
+                action === "fit"
+                  ? `${label}: Fit to View`
+                  : `${label}: Actual Size (100%)`,
+              enabled,
+              run: () => {
+                const rect = document
+                  .querySelector(".diagram-canvas")
+                  ?.getBoundingClientRect();
+                if (!rect) return;
+                setDiagramView((value) => {
+                  if (!value) return value;
+                  const scale =
+                    action === "fit"
+                      ? Math.max(
+                          0.02,
+                          Math.min(
+                            (rect.width - 48) / value.width,
+                            (rect.height - 48) / value.height,
+                            16,
+                          ),
+                        )
+                      : 1;
+                  return {
+                    ...value,
+                    scale,
+                    x: (rect.width - value.width * scale) / 2,
+                    y: (rect.height - value.height * scale) / 2,
+                  };
+                });
+              },
+            })),
+            ...(["zoomIn", "zoomOut"] as const).map((action) => ({
+              id: `${prefix}.${action}`,
+              title:
+                action === "zoomIn"
+                  ? `${label}: Zoom In`
+                  : `${label}: Zoom Out`,
+              enabled,
+              run: () =>
+                commandApi.execute(`${prefix}.zoom`, {
+                  factor: action === "zoomIn" ? 1.25 : 0.8,
+                }),
+            })),
+            {
+              id: `${prefix}.zoom`,
+              title: `${label}: Set Zoom…`,
+              enabled,
+              parameters: {
+                scale: "Absolute scale (1 = 100%), clamped to 0.02–16",
+                factor: "Optional relative multiplier instead of scale",
+                x: "Optional anchor x in canvas pixels",
+                y: "Optional anchor y in canvas pixels",
+              },
+              run: (args) => {
+                const apply = (scale?: number, factor?: number) => {
+                  if (
+                    (scale !== undefined &&
+                      (!Number.isFinite(scale) || scale <= 0)) ||
+                    (factor !== undefined &&
+                      (!Number.isFinite(factor) || factor <= 0))
+                  )
+                    throw new Error("Choose a positive zoom");
+                  const rect = document
+                    .querySelector(".diagram-canvas")
+                    ?.getBoundingClientRect();
+                  if (!rect) return;
+                  const x = args.x ?? rect.width / 2,
+                    y = args.y ?? rect.height / 2;
+                  if (!Number.isFinite(x) || !Number.isFinite(y))
+                    throw new Error("Invalid zoom anchor");
+                  setDiagramView((value) => {
+                    if (!value) return value;
+                    const next = Math.max(
+                      0.02,
+                      Math.min(16, scale ?? value.scale * (factor ?? 1)),
+                    );
+                    return {
+                      ...value,
+                      scale: next,
+                      x: x - ((x - value.x) * next) / value.scale,
+                      y: y - ((y - value.y) * next) / value.scale,
+                    };
+                  });
+                };
+                return args.scale === undefined && args.factor === undefined
+                  ? setPathPrompt({
+                      title: `${label} zoom (%)`,
+                      value: String(Math.round(diagramView!.scale * 100)),
+                      action: (value) => apply(Number(value) / 100),
+                    })
+                  : apply(args.scale, args.factor);
+              },
+            },
+            {
+              id: `${prefix}.pan`,
+              title: `${label}: Pan…`,
+              enabled,
+              parameters: {
+                dx: "Horizontal movement in pixels",
+                dy: "Vertical movement in pixels",
+              },
+              run: (args) => {
+                const apply = (dx: number, dy: number) => {
+                  if (!Number.isFinite(dx) || !Number.isFinite(dy))
+                    throw new Error("Enter numeric x, y movement");
+                  setDiagramView(
+                    (value) =>
+                      value && { ...value, x: value.x + dx, y: value.y + dy },
+                  );
+                };
+                return args.dx === undefined && args.dy === undefined
+                  ? setPathPrompt({
+                      title: "Pan by x, y pixels",
+                      value: "100, 0",
+                      action: (value) => {
+                        const [x, y] = value.split(",").map(Number);
+                        apply(x, y);
+                      },
+                    })
+                  : apply(args.dx ?? 0, args.dy ?? 0);
+              },
+            },
+          ];
         },
-        run: (args) => {
-          const apply = (dx: number, dy: number) => {
-            if (!Number.isFinite(dx) || !Number.isFinite(dy))
-              throw new Error("Enter numeric x, y movement");
-            setDiagramView(
-              (value) =>
-                value && { ...value, x: value.x + dx, y: value.y + dy },
-            );
-          };
-          return args.dx === undefined && args.dy === undefined
-            ? setPathPrompt({
-                title: "Pan by x, y pixels",
-                value: "100, 0",
-                action: (value) => {
-                  const [x, y] = value.split(",").map(Number);
-                  apply(x, y);
-                },
-              })
-            : apply(args.dx ?? 0, args.dy ?? 0);
-        },
-      },
+      ),
       {
         id: "menu.file",
         title: "File: Show File Menu",
@@ -1520,7 +2012,7 @@ export default function App() {
         id: "window.reload",
         title: "Window: Reload Window",
         shortcut: "Ctrl+R",
-        run: () => window.lwr.reload(),
+        run: reloadWindow,
       },
       {
         id: "window.close",
@@ -1559,7 +2051,12 @@ export default function App() {
         id: "explorer.toggle",
         title: "View: Toggle Explorer",
         shortcut: "Ctrl+Shift+E",
-        run: () => setSidebar((value) => !value),
+        run: () => {
+          if (sidebarMode === "search") {
+            setSidebarMode("explorer");
+            setSidebar(true);
+          } else setSidebar((value) => !value);
+        },
       },
       {
         id: "explorer.refresh",
@@ -1817,6 +2314,31 @@ export default function App() {
         },
       },
       {
+        id: "uploads.show",
+        title: "File: Show Upload Progress",
+        keywords: ["transfers", "copy", "queue"],
+        run: () => {
+          setUploadsVisible(true);
+          return window.lwr.uploads();
+        },
+      },
+      {
+        id: "uploads.hide",
+        title: "File: Hide Upload Progress",
+        run: () => setUploadsVisible(false),
+      },
+      {
+        id: "uploads.stop",
+        title: "File: Stop Upload…",
+        parameters: {
+          id: "Upload ID from uploads.show; omission opens the transfer popup to choose a file",
+        },
+        run: (args) =>
+          args.id !== undefined
+            ? window.lwr.stopUpload(args.id)
+            : setUploadsVisible(true),
+      },
+      {
         id: "file.import",
         title: local
           ? "File: Copy Local Files into Workspace…"
@@ -1828,17 +2350,13 @@ export default function App() {
             "Optional array of absolute local file paths; omission opens a picker",
         },
         run: async (args) => {
-          markBusy("transfer", true);
-          setMessage(local ? "Copying files…" : "Uploading files…");
           try {
             const result = await window.lwr.importFiles({
               directory: args.directory || root,
               paths: args.paths,
             });
-            setMessage(result ? `Saved ${result.paths.length} file(s)` : "");
             return result;
           } finally {
-            markBusy("transfer", false);
             setRefresh((value) => value + 1);
           }
         },
@@ -2595,6 +3113,23 @@ export default function App() {
         },
       },
       {
+        id: "tab.closeOthers",
+        title: "Tab: Close Others",
+        enabled: groups(layout).some((group) => group.tabs.length > 1),
+        parameters: {
+          group: "Optional group ID; default focused group",
+          path: "Tab to keep; default active tab in that group",
+        },
+        run: (args) => {
+          const group = groups(layoutRef.current).find(
+            (g) => g.id === (args.group ?? groupRef.current),
+          );
+          const path = args.path ?? group?.active;
+          if (!group || !path) throw new Error("Choose a tab in this group");
+          closeOthers(path, group.id);
+        },
+      },
+      {
         id: "tab.closeSaved",
         title: "Tab: Close All Saved Tabs",
         run: () => {
@@ -2726,6 +3261,81 @@ export default function App() {
         },
       },
       {
+        id: "group.tileTab",
+        title: "Group: Tile Tab at Pane Edge",
+        keywords: [
+          "Drag split",
+          "Move tab left right top bottom",
+          "Tile terminal",
+        ],
+        parameters: {
+          path: "Open file path or terminal ID; defaults to active tab",
+          source: "Optional source group; inferred for open tabs",
+          destination: "Target group; defaults to active group",
+          edge: "left, right, top, bottom; defaults to right",
+        },
+        enabled:
+          groups(layout).some((group) => group.tabs.length > 0) ||
+          terminalSessions.length > 0,
+        run: (args) => {
+          const path = args.path ?? currentGroup.active;
+          const source =
+            args.source ??
+            (
+              groups(layoutRef.current).find(
+                (group) =>
+                  group.id === groupRef.current && group.tabs.includes(path),
+              ) ||
+              groups(layoutRef.current).find((group) =>
+                group.tabs.includes(path),
+              )
+            )?.id;
+          const terminal = terminalsRef.current.find(
+            (item) => item.id === path,
+          );
+          if (
+            typeof path !== "string" ||
+            (source === undefined && terminal?.location !== "panel")
+          )
+            throw Error("Choose an open file or terminal tab.");
+          const id = nextGroup,
+            split = nextSplit;
+          const next = tileOpenTab(
+            layoutRef.current,
+            path,
+            source,
+            args.destination ?? groupRef.current,
+            args.edge ?? "right",
+            id,
+            split,
+          );
+          nextGroup++;
+          nextSplit++;
+          if (terminal) {
+            updateTerminal(terminal.id, { location: "editor" });
+            setActiveTerminal(terminal.id);
+          }
+          setViewModes((previous) => ({
+            ...previous,
+            [`${id}:${path}`]:
+              previous[`${source}:${path}`] ||
+              docsRef.current[path]?.mode ||
+              "source",
+          }));
+          setPreviewRatios((previous) => ({
+            ...previous,
+            [`${id}:${path}`]: previous[`${source}:${path}`] || 0.5,
+          }));
+          layoutRef.current = next;
+          setLayout(next);
+          setActiveGroup(id);
+          groupRef.current = id;
+          setExplorerActivation((value) => value + 1);
+          setTabDrop(null);
+          return { group: id };
+        },
+      },
+      {
         id: "group.equalize",
         title: "Group: Equalize All Split Sizes",
         run: () => {
@@ -2839,16 +3449,28 @@ export default function App() {
               active: selectedTerminal?.id,
               sessions: terminalSessions,
             },
-            diagram: diagramView
-              ? {
-                  title: diagramView.title,
-                  scale: diagramView.scale,
-                  x: diagramView.x,
-                  y: diagramView.y,
-                  width: diagramView.width,
-                  height: diagramView.height,
-                }
-              : null,
+            diagram:
+              diagramView?.kind === "diagram"
+                ? {
+                    title: diagramView.title,
+                    scale: diagramView.scale,
+                    x: diagramView.x,
+                    y: diagramView.y,
+                    width: diagramView.width,
+                    height: diagramView.height,
+                  }
+                : null,
+            expandedImage:
+              diagramView?.kind === "image"
+                ? {
+                    title: diagramView.title,
+                    scale: diagramView.scale,
+                    x: diagramView.x,
+                    y: diagramView.y,
+                    width: diagramView.width,
+                    height: diagramView.height,
+                  }
+                : null,
             documents: Object.values(documents).map((doc) => ({
               path: doc.path,
               loading: !!doc.loading,
@@ -3035,24 +3657,7 @@ export default function App() {
         parameters: {
           id: "Optional terminal ID; running shells require confirmation",
         },
-        run: (args) => {
-          const item = terminalById(args.id);
-          const close = () => {
-            detachTerminalTab(item.id);
-            setTerminalSessions((items) =>
-              items.filter((entry) => entry.id !== item.id),
-            );
-          };
-          if (["starting", "running"].includes(item.status))
-            setPrompt({
-              title: `Kill ${item.name}?`,
-              detail:
-                "This ends this shell and any agent or process running in it. Other terminals stay open.",
-              confirm: "Kill terminal",
-              action: close,
-            });
-          else close();
-        },
+        run: (args) => closeTerminal(args.id),
       },
       {
         id: "terminal.restart",
@@ -3252,6 +3857,7 @@ export default function App() {
         );
       setConnection(state);
       if (state.status === "connected") {
+        setRestoringConnection(false);
         if (state.kind === "ssh" && initialRoot.current === undefined)
           setRoot((current) => current || state.home || "/");
         setRefresh((value) => value + 1);
@@ -3260,6 +3866,10 @@ export default function App() {
     });
     window.lwr.bootstrap().then(async (config) => {
       initialRoot.current = config.root;
+      if (config.reloadState) {
+        initialTerminal.current = true;
+        setRestoringConnection(true);
+      }
       setConnection(config.connection);
       // Retain the requested workspace even when the initial SSH attempt fails.
       if (config.root !== undefined) setRoot(config.root);
@@ -3274,12 +3884,15 @@ export default function App() {
       } catch (error) {
         report(error);
       }
+      const ready = window.lwr.connect();
+      if (config.reloadState) restoreWindow(config.reloadState, ready);
       try {
-        const state = await window.lwr.connect();
+        const state = await ready;
+        setRestoringConnection(false);
         setConnection(state);
         setRoot(config.root ?? state.home ?? "/");
         if (config.root === "") setTerminalVisible(false);
-        if (config.file) void openFile(config.file, 1);
+        if (!config.reloadState && config.file) void openFile(config.file, 1);
       } catch (error) {
         report(error);
       }
@@ -3376,6 +3989,17 @@ export default function App() {
   }, [commandApi]);
   useEffect(() => {
     const quickOpenShortcut = (event: KeyboardEvent) => {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        execute("search.open");
+        return;
+      }
       if (
         (event.ctrlKey || event.metaKey) &&
         !event.altKey &&
@@ -3648,9 +4272,53 @@ export default function App() {
           });
         }}
         onPointerDown={() => execute("group.focus", { group: group.id })}
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
+        onDragOver={(event) => {
+          const types = event.dataTransfer.types;
+          if (
+            !types.includes("application/lwr-tab") &&
+            !types.includes("application/owlet-terminal") &&
+            !types.includes("application/owlet-file")
+          )
+            return;
           event.preventDefault();
+          event.stopPropagation();
+          if (types.includes("application/owlet-file")) return;
+          const edge = (event.target as HTMLElement).closest(".tabs-bar")
+            ? "center"
+            : dropEdge(
+                event.currentTarget.getBoundingClientRect(),
+                event.clientX,
+                event.clientY,
+              );
+          event.dataTransfer.dropEffect = "move";
+          setTabDrop((previous) =>
+            previous?.group === group.id && previous.edge === edge
+              ? previous
+              : { group: group.id, edge },
+          );
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            setTabDrop(null);
+        }}
+        onDrop={(event) => {
+          const types = event.dataTransfer.types;
+          if (
+            !types.includes("application/lwr-tab") &&
+            !types.includes("application/owlet-terminal") &&
+            !types.includes("application/owlet-file")
+          )
+            return;
+          event.preventDefault();
+          event.stopPropagation();
+          setTabDrop(null);
+          const edge = (event.target as HTMLElement).closest(".tabs-bar")
+            ? "center"
+            : dropEdge(
+                event.currentTarget.getBoundingClientRect(),
+                event.clientX,
+                event.clientY,
+              );
           try {
             const entry = event.dataTransfer.getData("application/owlet-file");
             if (entry) {
@@ -3663,19 +4331,44 @@ export default function App() {
               "application/owlet-terminal",
             );
             if (terminalId) {
-              execute("terminal.moveToEditor", {
-                id: terminalId,
-                group: group.id,
-              });
+              execute(
+                edge === "center" ? "terminal.moveToEditor" : "group.tileTab",
+                {
+                  id: terminalId,
+                  group: group.id,
+                  path: terminalId,
+                  destination: group.id,
+                  edge,
+                },
+              );
               return;
             }
             const { path, source } = JSON.parse(
               event.dataTransfer.getData("application/lwr-tab"),
             );
-            execute("group.moveTab", { path, source, destination: group.id });
+            if (edge !== "center" || source !== group.id)
+              execute(edge === "center" ? "group.moveTab" : "group.tileTab", {
+                path,
+                source,
+                destination: group.id,
+                edge,
+              });
           } catch {}
         }}
       >
+        {tabDrop?.group === group.id && (
+          <div
+            className={`tab-drop-preview drop-${tabDrop.edge}`}
+            data-edge={tabDrop.edge}
+            aria-hidden="true"
+          >
+            <span>
+              {tabDrop.edge === "center"
+                ? "Move tab here"
+                : `Split ${tabDrop.edge}`}
+            </span>
+          </div>
+        )}
         <div className="tabs-bar">
           <TabStrip active={group.active}>
             {group.tabs.map((path) => {
@@ -3724,6 +4417,7 @@ export default function App() {
                   }
                   data-terminal-tab={terminalTab?.id}
                   onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
                     event.dataTransfer.setData(
                       "application/lwr-tab",
                       JSON.stringify({ path, source: group.id }),
@@ -4227,6 +4921,14 @@ export default function App() {
               disabled: !file || !workspaceItem,
             },
             null,
+            {
+              label: "Close Others",
+              id: "tab.closeOthers",
+              args,
+              disabled: !groups(layout).some(
+                (group) => group.id === fileMenu.group && group.tabs.length > 1,
+              ),
+            },
             { label: "Close All Saved Tabs", id: "tab.closeSaved" },
           ];
         }
@@ -4285,6 +4987,13 @@ export default function App() {
           });
         if (fileMenu.directory)
           items.push({
+            label: "Find in Folder…",
+            id: "search.scope",
+            args: { directory },
+            disabled: !workspaceItem || !connected,
+          });
+        if (fileMenu.directory)
+          items.push({
             label: local ? "Copy Files Here…" : "Upload Files Here…",
             id: "file.import",
             args: { directory },
@@ -4324,6 +5033,9 @@ export default function App() {
           "--preview-font-size": `${settings["preview.fontSize"]}px`,
           "--preview-font-family": settings["preview.fontFamily"],
           "--preview-line-height": settings["preview.lineHeight"],
+          "--preview-max-width": settings["preview.maxWidth"]
+            ? `${settings["preview.maxWidth"]}px`
+            : "none",
         } as React.CSSProperties
       }
     >
@@ -4459,25 +5171,83 @@ export default function App() {
                 display: sidebar ? undefined : "none",
               }}
             >
-              <Explorer
-                cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
-                onContext={(path, directory, x, y) =>
-                  setFileMenu({ path, directory, x, y })
-                }
-                root={root}
-                selected={current?.path}
-                activation={explorerActivation}
-                focusSelected={!!current?.unsupported}
-                visible={sidebar}
-                caseInsensitive={local}
-                connection={connection}
-                revision={refresh}
-                onOpen={(path) => execute("file.open", { path })}
-                onFolder={() => execute("window.openFolder")}
-                onRefresh={() => execute("explorer.refresh")}
-                onError={report}
-                onCommand={execute}
-              />
+              <div
+                style={{
+                  height: "100%",
+                  display: sidebarMode === "explorer" ? undefined : "none",
+                }}
+              >
+                <Explorer
+                  navigation={
+                    <nav className="sidebar-navigation">
+                      <button
+                        aria-label="Show Explorer"
+                        aria-pressed={true}
+                        onClick={() => execute("explorer.show")}
+                      >
+                        <FolderOpen size={13} />
+                        Files
+                      </button>
+                      <button
+                        aria-label="Show Project Search"
+                        onClick={() => execute("search.open")}
+                      >
+                        <SearchIcon size={13} />
+                      </button>
+                    </nav>
+                  }
+                  uploads={uploads}
+                  cutPath={fileClipboard?.cut ? fileClipboard.path : undefined}
+                  onContext={(path, directory, x, y) =>
+                    setFileMenu({ path, directory, x, y })
+                  }
+                  root={root}
+                  selected={current?.path}
+                  activation={explorerActivation}
+                  focusSelected={!!current?.unsupported}
+                  visible={sidebar && sidebarMode === "explorer"}
+                  caseInsensitive={local}
+                  connection={connection}
+                  revision={refresh}
+                  onOpen={(path) => execute("file.open", { path })}
+                  onFolder={() => execute("window.openFolder")}
+                  onRefresh={() => execute("explorer.refresh")}
+                  onError={report}
+                  onCommand={execute}
+                />
+              </div>
+              <div
+                style={{
+                  height: "100%",
+                  display: sidebarMode === "search" ? undefined : "none",
+                }}
+              >
+                <ProjectSearch
+                  model={projectSearch}
+                  root={root}
+                  settings={settings}
+                  dirty={dirty}
+                  onCommand={execute}
+                  navigation={
+                    <nav className="sidebar-navigation">
+                      <button
+                        aria-label="Show Explorer"
+                        onClick={() => execute("explorer.show")}
+                      >
+                        <FolderOpen size={13} />
+                      </button>
+                      <button
+                        aria-label="Show Project Search"
+                        aria-pressed={true}
+                        onClick={() => execute("search.open")}
+                      >
+                        <SearchIcon size={13} />
+                        Search
+                      </button>
+                    </nav>
+                  }
+                />
+              </div>
             </div>
             <div
               className="sidebar-handle"
@@ -4698,7 +5468,11 @@ export default function App() {
         </div>
       </main>
       {diagramView && (
-        <DiagramViewer diagram={diagramView} onCommand={execute} />
+        <DiagramViewer
+          key={diagramView.id}
+          diagram={diagramView}
+          onCommand={execute}
+        />
       )}
       <Suspense fallback={null}>
         {terminalSessions.map((item) => (
@@ -4706,7 +5480,7 @@ export default function App() {
             settings={settings}
             key={item.id}
             id={item.id}
-            root={item.path}
+            root={restoringConnection ? "" : item.path}
             connection={connection}
             restart={item.restart}
             destination={"terminal-slot-" + item.id}
@@ -4745,20 +5519,23 @@ export default function App() {
           </div>
         </div>
       )}
-      {message && (
-        <div
-          className={`toast ${/^(saved|connected|created|moved|deleted|copying|copied|cut|uploading|downloading|downloaded)/i.test(message) ? "" : "error-toast"}`}
-          role="status"
-        >
-          <span>{message}</span>
-          <button
-            aria-label="Dismiss message"
-            onClick={() => execute("message.dismiss")}
+      <div className="notification-stack">
+        {uploadsVisible && <Uploads items={uploads} onCommand={execute} />}
+        {message && (
+          <div
+            className={`toast ${/^(saved|connected|created|moved|deleted|copying|copied|cut|uploading|downloading|downloaded)/i.test(message) ? "" : "error-toast"}`}
+            role="status"
           >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+            <span>{message}</span>
+            <button
+              aria-label="Dismiss message"
+              onClick={() => execute("message.dismiss")}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+      </div>
       <footer className="statusbar">
         <div>
           <button
@@ -4813,6 +5590,16 @@ export default function App() {
           </span>
         </div>
         <div>
+          {uploads.length > 0 && (
+            <button
+              title="Show upload progress"
+              onClick={() => execute("uploads.show")}
+            >
+              {uploads.filter(uploading).length
+                ? `Transferring ${uploads.filter(uploading).length}`
+                : "Transfers"}
+            </button>
+          )}
           <button
             className={vimMode ? "vim-active" : ""}
             aria-label="Toggle Vim mode"
@@ -4844,8 +5631,9 @@ export default function App() {
       {paletteVisible && (
         <CommandPalette
           commands={commandApi.list()}
+          history={commandHistory}
           onClose={() => setPaletteVisible(false)}
-          onExecute={execute}
+          onExecute={executePalette}
         />
       )}
       {appearance.dialog}

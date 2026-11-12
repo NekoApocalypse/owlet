@@ -145,20 +145,16 @@ def list_dir(path, offset=0):
     path = resolve(path)
     entries = []
     with os.scandir(path) as directory:
-        for index, entry in enumerate(directory):
-            if index < offset:
-                continue
+        for entry in directory:
             try:
                 directory_entry = entry.is_dir()
                 entries.append({"name": entry.name, "path": entry.path, "directory": directory_entry, "symlink": entry.is_symlink()})
             except OSError:
                 continue
-            if len(entries) >= 101:
-                break
-    more = len(entries) > 100
-    entries = entries[:100]
-    entries.sort(key=lambda item: (not item["directory"], item["name"].lower()))
-    return {"path": path, "entries": entries, "next": offset + 100 if more else None}
+    # Sort before slicing so later pages extend the same directory-wide order.
+    entries.sort(key=lambda item: (not item["directory"], item["name"].lower(), item["name"]))
+    more = offset + 100 < len(entries)
+    return {"path": path, "entries": entries[offset:offset + 100], "next": offset + 100 if more else None}
 
 def save_file(args):
     path = os.path.realpath(resolve(args["path"]))
@@ -528,7 +524,7 @@ def dispatch(method, args):
 
 def handle(request):
     try:
-        result = dispatch(request["method"], request.get("args", {}))
+        result = (search_dispatch if request["method"].startswith("search-") else dispatch)(request["method"], request.get("args", {}))
         if "id" in request:
             emit({"id": request["id"], "result": result})
     except Exception as error:
@@ -613,12 +609,14 @@ pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 try:
     for line in sys.stdin:
         request = json.loads(line)
-        if request.get("method", "").startswith("terminal-"):
+        if request.get("method", "").startswith(("terminal-", "search-")):
             handle(request)
         else:
             pool.submit(handle, request)
 finally:
     stopping = True
+    with search_lock:
+        for owner in list(search_jobs): search_stop(owner)
     listener.close()
     for pid, fd in list(terminals.values()):
         try:

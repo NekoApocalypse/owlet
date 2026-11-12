@@ -18,11 +18,22 @@ test("Settings accepts JSONC, preserves unknown keys, rejects wrong types and li
     '{"editor.fontSize":"18"}',
     '{"terminal.scrollback":2.5}',
     '{"preview.fontSize":400}',
+    '{"preview.maxWidth":-1}',
+    '{"preview.maxWidth":10001}',
+    '{"preview.maxWidth":900.5}',
+    '{"preview.maxWidth":"900px"}',
     '{"markdown.defaultView":"random"}',
     '{"editor.vimMode":1}',
     '{"editor.fontFamily":""}',
   ])
     assert.throws(() => validate(text));
+  for (const width of [0, 900, 1100, 10000])
+    assert.equal(
+      validate(JSON.stringify({ "preview.maxWidth": width }))[
+        "preview.maxWidth"
+      ],
+      width,
+    );
 });
 test("Settings store uses revisions and preserves disk contents on conflict or invalid save", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "owlet-settings-"));

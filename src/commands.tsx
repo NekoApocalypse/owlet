@@ -25,6 +25,7 @@ export function useCommands(
   commands: Command[],
   onError: (error: unknown) => void,
 ) {
+  const [history, setHistory] = useState<string[]>([]);
   const latest = useRef(commands);
   latest.current = commands;
   const error = useRef(onError);
@@ -58,8 +59,28 @@ export function useCommands(
     window.lwrCommands = api;
     window.owletCommands = api;
   }, [api]);
+  useEffect(() => {
+    const stop = window.lwr.onCommandHistory(setHistory);
+    void window.lwr.commandHistory().then(setHistory).catch(error.current);
+    return stop;
+  }, []);
   return {
     api,
+    history,
+    executePalette: (id: string) => {
+      const command = latest.current.find((item) => item.id === id);
+      if (!command || command.enabled === false) return;
+      // Persist before navigation commands can replace this renderer. Arguments
+      // and internal UI actions never enter palette history.
+      void (async () => {
+        try {
+          await window.lwr.rememberCommand(id);
+        } catch (err) {
+          error.current(err);
+        }
+        await api.execute(id);
+      })().catch(error.current);
+    },
     execute: (id: string, args: CommandArgs = {}) => {
       void api.execute(id, args).catch(error.current);
     },
@@ -80,10 +101,12 @@ function score(title: string, query: string) {
 }
 export default function CommandPalette({
   commands,
+  history,
   onExecute,
   onClose,
 }: {
   commands: CommandInfo[];
+  history: string[];
   onExecute(id: string): void;
   onClose(): void;
 }) {
@@ -98,7 +121,13 @@ export default function CommandPalette({
       ),
     }))
     .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      const rank = (id: string) => {
+        const index = history.indexOf(id);
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+      };
+      return rank(a.command.id) - rank(b.command.id) || b.score - a.score;
+    });
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     setSelected(0);

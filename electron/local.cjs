@@ -253,50 +253,40 @@ class LocalConnection extends EventEmitter {
       const directory = resolve(args.path),
         entries = [];
       const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
-      const dir = fs.opendirSync(directory);
-      let index = 0,
-        nextOffset = null;
-      try {
-        for (let item; (item = dir.readSync());) {
-          if (index++ < offset) continue;
-          const file = path.join(directory, item.name);
-          try {
-            // Windows opendir can report a junction as an ordinary directory.
-            const symlink =
-              item.isSymbolicLink() ||
-              (process.platform === "win32" &&
-                item.isDirectory() &&
-                fs.lstatSync(file).isSymbolicLink());
-            entries.push({
-              name: item.name,
-              path: display(file),
-              directory: symlink
-                ? fs.statSync(file).isDirectory()
-                : item.isDirectory(),
-              symlink,
-            });
-          } catch {
-            continue;
-          }
-          if (entries.length === 101) {
-            nextOffset = index - 1;
-            break;
-          }
+      // Page the ordered directory, not filesystem enumeration order. Keep
+      // enumeration/stat I/O asynchronous now that every name is inspected.
+      const dir = await fs.promises.opendir(directory);
+      for await (const item of dir) {
+        const file = path.join(directory, item.name);
+        try {
+          // Windows opendir can report a junction as an ordinary directory.
+          const symlink =
+            item.isSymbolicLink() ||
+            (process.platform === "win32" &&
+              item.isDirectory() &&
+              (await fs.promises.lstat(file)).isSymbolicLink());
+          entries.push({
+            name: item.name,
+            path: display(file),
+            directory: symlink
+              ? (await fs.promises.stat(file)).isDirectory()
+              : item.isDirectory(),
+            symlink,
+          });
+        } catch {
+          continue;
         }
-      } finally {
-        dir.closeSync();
       }
-      const more = entries.length > 100;
-      entries.length = Math.min(entries.length, 100);
       entries.sort(
         (a, b) =>
           Number(b.directory) - Number(a.directory) ||
-          a.name.localeCompare(b.name),
+          a.name.localeCompare(b.name) ||
+          (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
       );
       return {
         path: display(directory),
-        entries,
-        next: more ? nextOffset : null,
+        entries: entries.slice(offset, offset + 100),
+        next: offset + 100 < entries.length ? offset + 100 : null,
       };
     }
     if (method === "terminal-start") return this.startTerminal(args);

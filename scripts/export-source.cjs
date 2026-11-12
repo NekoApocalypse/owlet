@@ -48,6 +48,7 @@ for (const entry of [
   "scripts/export-source.cjs",
   "assets/icon.png",
   "assets/LICENSE.lucide.txt",
+  "assets/LICENSE.ripgrep.txt",
   "assets/icon.ico",
   "assets/icon-manifest.json",
   "assets/" + require("../assets/icon-manifest.json").icon,

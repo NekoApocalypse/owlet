@@ -61,6 +61,24 @@ async function until(fn, timeout = 20000) {
     });
   state = () => cmd("workspace.state", { readOnly: true });
   await page.locator('[data-ready="true"]').waitFor();
+  // A fast local disk can finish indexing before the first keyboard event.
+  // Hold list requests briefly in this test process, then restart the index so
+  // the partial-results assertions observe a real, deterministic loading state.
+  await app.evaluate(({ app }) => {
+    const require = process
+      .getBuiltinModule("module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { LocalConnection } = require(
+      app.getAppPath() + "/electron/local.cjs",
+    );
+    const request = LocalConnection.prototype.request;
+    LocalConnection.prototype.request = async function (method, args) {
+      if (method === "list")
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      return request.call(this, method, args);
+    };
+  });
+  await cmd("file.index.refresh");
   await page.keyboard.press("Control+p");
   await page.getByRole("dialog", { name: "Quick Open", exact: true }).waitFor();
   assert.match(

@@ -15,6 +15,7 @@ export type SettingDefinition = {
   max?: number;
   step?: number;
   enum?: string[];
+  allowEmpty?: boolean;
 };
 export const definitions = Object.entries(schema) as [
   SettingKey,
@@ -45,7 +46,10 @@ export function settingError(key: SettingKey, value: unknown) {
       (!d.step && !Number.isInteger(value)))
   )
     return `Use ${d.step ? "a number" : "an integer"} between ${d.min} and ${d.max}.`;
-  if (typeof value === "string" && (!value.trim() || value.length > 256))
+  if (
+    typeof value === "string" &&
+    ((!value.trim() && !d.allowEmpty) || value.length > 256)
+  )
     return "Use 1–256 characters.";
   if (d.enum && !d.enum.includes(value as string))
     return `Choose ${d.enum.join(", ")}.`;

@@ -1,6 +1,6 @@
 {
   "name": "owlet",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "private": true,
   "description": "A focused reader and editor for agent work, locally or over SSH",
@@ -33,6 +33,7 @@
     "@codemirror/view": "^6.43.15",
     "@lezer/highlight": "^1.2.5",
     "@replit/codemirror-vim": "^6.4.0",
+    "@vscode/ripgrep": "1.18.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "dompurify": "^3.4.17",

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -7,11 +7,20 @@ import {
   FolderOpen,
   ArrowUpRight,
 } from "lucide-react";
-import { basename, dirname, type Entry, type ConnectionState } from "./types";
+import {
+  basename,
+  dirname,
+  type Entry,
+  type ConnectionState,
+  type Upload,
+} from "./types";
+import { uploading, uploadLabel } from "./Uploads";
 type Listing = { entries: Entry[]; path: string; next: number | null };
 import { FileIcon } from "./FileIcon";
 export { FileIcon } from "./FileIcon";
 export default function Explorer({
+  navigation,
+  uploads,
   root,
   selected,
   activation,
@@ -28,6 +37,8 @@ export default function Explorer({
   onCommand,
   onContext,
 }: {
+  navigation?: ReactNode;
+  uploads: Upload[];
   root: string;
   selected?: string;
   activation: number;
@@ -53,6 +64,21 @@ export default function Explorer({
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
   const tree = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const viewport = tree.current;
+    if (!viewport) return;
+    let idle: ReturnType<typeof setTimeout>;
+    const showScrollbar = () => {
+      viewport.dataset.scrolling = "true";
+      clearTimeout(idle);
+      idle = setTimeout(() => delete viewport.dataset.scrolling, 800);
+    };
+    viewport.addEventListener("scroll", showScrollbar, { passive: true });
+    return () => {
+      viewport.removeEventListener("scroll", showScrollbar);
+      clearTimeout(idle);
+    };
+  }, []);
   const [reveal, setReveal] = useState<{
     path: string;
     attempted: Set<string>;
@@ -74,6 +100,32 @@ export default function Explorer({
   const invalidated = useRef(new Map<string, number>());
   const generation = useRef(0);
   const reported = useRef(new Map<string, string>());
+  const revealedUploads = useRef(new Set<string>());
+  useEffect(() => {
+    if (!root || !listings[root] || connection.status !== "connected") return;
+    const folders = new Set<string>();
+    for (const item of uploads) {
+      if (
+        (!uploading(item) && item.status !== "completed") ||
+        revealedUploads.current.has(item.id)
+      )
+        continue;
+      revealedUploads.current.add(item.id);
+      let directory = item.directory.replaceAll("\\", "/");
+      while (
+        pathKey(directory) === pathKey(root) ||
+        pathKey(directory).startsWith(pathKey(root).replace(/\/$/, "") + "/")
+      ) {
+        folders.add(directory);
+        if (pathKey(directory) === pathKey(root)) break;
+        directory = dirname(directory);
+      }
+    }
+    if (folders.size) {
+      setExpanded((previous) => new Set([...previous, ...folders]));
+      for (const folder of folders) if (!listings[folder]) void load(folder);
+    }
+  }, [uploads, root, listings[root], connection.status]);
   const within = (candidate: string, parent: string) =>
     candidate === parent ||
     candidate.startsWith(parent.replace(/\/$/, "") + "/");
@@ -367,7 +419,33 @@ export default function Explorer({
   };
   function entries(path: string, depth: number) {
     const listing = listings[path];
-    if (!listing)
+    const pendingUploads = uploads.filter(
+      (item) =>
+        pathKey(item.directory) === pathKey(path) &&
+        uploading(item) &&
+        !listing?.entries.some(
+          (entry) => pathKey(entry.path) === pathKey(item.path),
+        ),
+    );
+    const uploadRows = pendingUploads.map((item) => (
+      <div
+        key={item.id}
+        className="tree-placeholder tree-upload"
+        data-upload-id={item.id}
+        title={`${item.path} · ${uploadLabel(item)}`}
+        style={{
+          paddingLeft: `calc(var(--space-8) + ${depth} * var(--space-12))`,
+        }}
+      >
+        <span className="tree-spacer" />
+        <FileIcon path={item.path} />
+        <span className="tree-upload-name">{item.name}</span>
+        <span className="tree-upload-status">
+          {item.status === "uploading" ? "Uploading…" : uploadLabel(item)}
+        </span>
+      </div>
+    ));
+    if (!listing && !pendingUploads.length)
       return (
         <div
           className="tree-hint"
@@ -380,10 +458,14 @@ export default function Explorer({
       );
     return (
       <>
-        {listing.entries
+        {uploadRows}
+        {listing?.entries
           .filter(
             (entry) =>
-              hidden || !entry.name.startsWith(".") || activeBranch(entry.path),
+              !/^\.owlet-(upload|download|save|copy)-/.test(entry.name) &&
+              (hidden ||
+                !entry.name.startsWith(".") ||
+                activeBranch(entry.path)),
           )
           .map((entry) => (
             <div key={entry.path}>
@@ -485,7 +567,7 @@ export default function Explorer({
                 entries(entry.path, depth + 1)}
             </div>
           ))}
-        {listing.next !== null && (
+        {listing && listing.next !== null && (
           <button
             className="tree-more"
             disabled={loading.has(path)}
@@ -494,8 +576,17 @@ export default function Explorer({
             Load next 100 entries
           </button>
         )}
-        {listing.entries.length === 0 && (
-          <p className="tree-hint">Empty directory</p>
+        {listing?.entries.length === 0 && pendingUploads.length === 0 && (
+          <div
+            className="tree-placeholder"
+            style={{
+              paddingLeft: `calc(var(--space-8) + ${depth} * var(--space-12))`,
+            }}
+          >
+            <span className="tree-spacer" aria-hidden="true" />
+            <span className="tree-placeholder-icon" aria-hidden="true" />
+            <span>Empty folder</span>
+          </div>
         )}
       </>
     );
@@ -525,7 +616,7 @@ export default function Explorer({
       }}
     >
       <div className="section-label">
-        <span>EXPLORER</span>
+        {navigation || <span>EXPLORER</span>}
         <div className="actions">
           <button
             title="Open folder in new window"

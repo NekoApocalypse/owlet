@@ -33,6 +33,7 @@ Commands that require a path, number, or text offer a prompt when invoked from t
 | Image fit and zoom | `image.fit`, `.zoomIn`, `.zoomOut` |
 | Create/switch/rename/kill terminals, move into editor/panel, show/hide/focus, restart, resize, send text | `terminal.new`, `.select`, `.next`, `.previous`, `.rename`, `.close`, `.moveToEditor`, `.moveToPanel`, `.toggle`, `.focus`, `.restart`, `.start`, `.setHeight`, `.grow`, `.shrink`, `.sendText` |
 | Expand Mermaid diagrams, fit/actual size, zoom, pan, close | `diagram.open`, `.fit`, `.actualSize`, `.zoomIn`, `.zoomOut`, `.zoom`, `.pan`, `.close` |
+| Expand embedded Markdown images, fit/actual size, zoom, pan, close | `preview.image.open`, `.fit`, `.actualSize`, `.zoomIn`, `.zoomOut`, `.zoom`, `.pan`, `.close` |
 | Reconnect/disconnect, project color/import/reset/settings, notices, workspace inspection | `connection.*`, `project.*`, `message.dismiss`, `workspace.state` |
 | Approve or cancel a pending destructive action | `confirmation.accept`, `.cancel`; approval requires the current question's token |
 
@@ -118,6 +119,17 @@ The native File menu sends command IDs back to the renderer registry; it does no
 commands do not accept arbitrary SVG or HTML. Tests in `tests/terminal-workspaces.cjs` exercise these UI/API paths,
 shell continuity, targeted input, real SSH reconnect, diagram navigation, and Find/Replace behavior and styling.
 
+`preview.image.open({index?, group?})` expands a loaded image in the target Markdown preview, defaulting to its first image
+and the focused group. Clicking an unlinked image or its Expand button uses this command. Linked images keep their existing
+navigation; their Expand button opens the viewer. Loading, missing, or undecodable images cannot expand.
+`preview.image.zoom({scale?, factor?, x?, y?})` and `preview.image.pan({dx?, dy?})` accept the same parameters as their diagram
+counterparts; omitted values prompt. The other image viewer commands take no arguments. Controls are enabled only while an
+expanded image is open. `workspace.state({readOnly:true}).expandedImage` reports its title, dimensions, scale and translation;
+the existing `.diagram` field remains specific to Mermaid. The viewer reuses already-loaded image bytes, without another SSH
+read. Scroll zooms around the pointer, dragging or arrow keys pans, +/- zooms, 0 fits, 1 shows actual size, Escape closes,
+and double-click fits. Preview text zoom and source Markdown stay unchanged. Existing supported image formats and size limits
+remain in effect; SVG image-file support is not added by this feature. `tests/expanded-images.cjs` covers local and SSH behavior.
+
 `tests/explorer-rename.cjs` verifies directory rename recovery locally and over SSH: obsolete subtree requests stop,
 unsaved buffers survive, and a missing workspace root shows an inline notice instead of repeated error toasts.
 
@@ -141,6 +153,10 @@ work when the PDF page has focus; Ctrl+wheel zooms the hovered PDF pane. These a
 Tab middle-click uses `file.close({path, group})`, preserving unsaved-buffer and terminal-close confirmation.
 Tabs have their own menu. `group.splitRight({group?, path?})` and `group.splitLeft({group?, path?})` split the targeted tab;
 `tab.reveal({group?, path?})` shows its Explorer row, opening the sidebar if needed.
+`tab.closeOthers({group?, path?})` keeps the specified tab (default: active tab in the focused group) and closes
+the other tabs in that group. Other groups are untouched. It uses the same dirty-buffer and running-terminal
+confirmations as closing individual tabs; Cancel stops the remaining closes. Tabs opened during a confirmation
+are not added to the close list. Dirty buffers still open in another group remain intact.
 `tab.closeSaved()` closes all clean document tabs across the window, leaving dirty buffers, in-progress saves and terminal
 tabs open. Copy Path and Copy Relative Path reuse the file commands; filesystem operations remain in the Explorer menu.
 
@@ -169,12 +185,31 @@ Cut/Paste change only the unsaved source buffer and remain undoable. They reject
 focused or active after a tab/Explorer click. Source editors, terminals and modal inputs retain their own shortcuts.
 Ctrl+wheel inside a preview uses the same shared zoom commands.
 
+Markdown preview maximum width is `preview.maxWidth`: an integer from 0 to 10000 CSS pixels, default 900.
+Use 0 to fill the pane. Set it in Settings → Markdown preview → Maximum width, or with
+`settings.update({key: "preview.maxWidth", value: 1100})` followed by `settings.save`.
+Saved changes apply to all Markdown previews in local and SSH windows; narrower panes still fit their available width.
+The width scales with preview zoom. Reset removes the override and restores 900 pixels.
+
 Settings JSON can also be edited via `editor.setText` and inspected through `file.inspect`. Unknown keys/comments survive
 individual UI edits. Invalid known values cannot be saved. `editor.vim` now persists the toggle in user settings; it asks you
 to finish unsaved Settings edits first so a shortcut cannot silently save unrelated edits. Direct text entry and settings
 search remain widget interactions; their submitted changes use the same commands as agent calls.
 
 ## Quick Open, files, and Vim
+
+`window.reload()` restores this window's tab order, active tabs/group, split layout, Markdown/HTML/Settings views,
+preview zoom and pane sizes. Files are read fresh; missing files stay open with Retry. The existing unsaved-change
+confirmation still applies, and active saves must finish first. Terminal names and panel/editor placement return with
+new shells in their configured starting directories; running processes and scrollback are not preserved. Temporary
+unsupported-file tabs are omitted. This is reload restoration, not workspace recovery after quitting the app.
+
+The palette stores up to 100 recently chosen command IDs in a persistent, deduplicated queue in the user profile.
+Choosing a command moves it to the front. Recent matches precede other matching results; unrelated commands remain
+filtered out. Buttons, shortcuts and agent/API calls use the same handlers without flooding this preference history.
+Arguments, file contents and terminal input are never recorded. `commands.recent({readOnly:true})` reads the queue
+(omit the argument to copy it);
+`commands.clearRecent()` clears it. Both are discoverable in the palette.
 
 | Action | Command and arguments |
 | --- | --- |
@@ -186,6 +221,9 @@ search remain widget interactions; their submitted changes use the same commands
 | Rename / move | `file.rename({path?, name?})`, `file.move({path?, directory?, destination?})`; a directory retains the basename, destination is a complete path; omitted destination/name prompts |
 | Delete | `file.delete({path?})`; deletion is permanent and always confirms |
 | Copy/upload local files | `file.import({directory?, paths?})`; paths are absolute local regular files; omission opens a native picker |
+| Show / inspect upload queue | `uploads.show()` opens the popup and returns this window's items: `id`, `name`, `path`, `directory`, `size`, `transferred`, `status`, `remote`, optional `error` |
+| Hide upload popup | `uploads.hide()` leaves transfers running; the status bar can reopen it |
+| Stop one upload | `uploads.stop({id?})`; ID comes from `uploads.show`; omission opens the popup to choose an item |
 | Download from SSH | `file.download({path?, destination?})`; omit destination for Save As; explicit destination must not exist |
 | Reload current/open file | `file.reload({path?, discard?})`; refuses dirty buffers unless discard is explicitly true; `file.revert` presents a confirmation first |
 | Execute a Vim Ex command | `editor.vimCommand({command?})`; omit for a prompt; requires Vim enabled and a source editor; host operations return a completion boolean |
@@ -195,5 +233,63 @@ use `workspace.state().confirmation` and `confirmation.accept({token})`. Neither
 buffer, revision, workspace-boundary, or no-overwrite checks. Import/download streams stay in the main process, outside the
 renderer. Direct typing, drag capture, menu navigation, and fuzzy query editing remain widget interactions.
 
+Imports immediately queue Explorer placeholders and report confirmed bytes in a compact transfer popup. Files are copied
+sequentially per window. `file.import` resolves to `{paths, cancelled, failed}` after its batch settles; individual failures
+remain visible in the popup and do not prevent later files from copying. Existing destination files are never replaced.
+Stopping a queued file skips it; stopping an active file finishes its outstanding chunk request, then removes its temporary
+file. The final commit cannot be cancelled once started. Hide never cancels and progress updates never unhide the popup;
+adding another batch shows it again. Queues survive renderer reloads, not application exit. Completed/failed/stopped entries
+remain until another batch starts. Folder and symbolic-link drops remain unsupported. The same behavior applies to local copies.
+
 `tests/vim-files.cjs`, `tests/remote-files-ui.cjs`, and `tests/file-operations.test.cjs` cover these paths. The SSH checks need
 `OWLET_SSH_TARGET` and optionally `OWLET_TEST_TMPDIR`; they use dedicated test directories.
+
+## Project text search
+
+`Ctrl+Shift+F` opens Search beside the editor. Type a literal keyword to search saved text, or use an Explorer folder's
+**Find in Folder…** menu. Results stream into file groups; selecting a line opens its source and selects the first match.
+Unsaved buffers are not searched or replaced. If a result no longer matches the current buffer, Owlet asks you to rerun.
+
+| Action | Command and arguments |
+| --- | --- |
+| Open Search | `search.open({query?, directory?})`; a supplied query also runs it |
+| Run search | `search.run({query?, directory?, include?, exclude?, caseSensitive?, wholeWord?, includeHidden?, includeIgnored?, maxResults?, timeoutSeconds?, maxResultMB?, maxFileSizeMB?, maxDepth?, threads?})` |
+| Stop / clear | `search.stop()` kills the search process and retains received results; `search.clear()` also clears the query/results |
+| Narrow scope | `search.scope({directory?})`; omission focuses the folder field |
+| Raise limits | `search.more()` reruns from the beginning with doubled result, byte and time limits, within the hard ceilings |
+| Open result / toggle file group | `search.openResult({index?})` uses the zero-based result index, default 0; `search.toggleFile({path?})` defaults to the first result file |
+| Inspect | `search.inspect({readOnly:true})` returns status, reason, scope, request, form and matches; omission copies JSON |
+| Return to Explorer | `explorer.show()` |
+
+The query is 1–512 characters on one line. Folder scope must resolve inside the workspace. Include/exclude fields are
+comma-separated ripgrep globs relative to that scope; an empty `exclude` disables configured exclusions. Explicit positive
+includes override ripgrep's hidden/ignore filtering; explicit excludes still win. Hidden files are otherwise excluded,
+native `.ignore`/Git ignore rules apply, and `.git` plus Owlet temporary transfer paths are always excluded. Symlinks are
+not followed. Defaults also exclude node_modules, .venv, __pycache__, dist and build directories.
+
+Settings → Project search controls the defaults: 2 workers, 2,000 matching lines, 2 MiB result data, 15 seconds,
+4 MiB per file, all depths (`search.maxDepth: 0`). Hard ceilings are respectively 4, 10,000, 8 MiB, 120 seconds,
+32 MiB and depth 100. This is independent of Quick Open's filename index and depth. There is no startup scan.
+Search completion means complete within the displayed scope and filters; a limit, cancellation or error is explicitly
+shown. A result cap can mark a search limited even when its last matching line happened to hit the cap exactly.
+
+Local packages bundle ripgrep. SSH search uses `rg` already installed on the remote host and reports an actionable error
+if unavailable; Owlet does not install it or a persistent daemon. Work runs outside the UI and file-operation workers.
+Remote results are pulled in bounded batches, and result rows are virtualized. Order is ripgrep's streaming traversal
+order, not a relevance ranking; use folder scope/include filters first for enormous projects. This version offers literal
+search and first-match navigation per matching line, not regex, cross-file replacement, PDF extraction or OCR. UTF-8 text
+is the supported navigation format. Search state is per window and is not restored after reload.
+
+## Drag-and-drop editor tiling
+
+Drag an open file or terminal tab over a pane's left, right, top or bottom edge. The translucent preview shows the new
+half-pane before dropping. Drop in the center or tab strip to move into the existing group. Panel terminal items can also
+be dropped onto editor edges. Dirty text and live terminal sessions are preserved; this never saves a file or restarts a shell.
+
+`group.tileTab({path?, source?, destination?, edge?})` is the shared UI/palette/API action. `path` is an open file path or
+terminal ID (default active tab), `source` is an optional source group ID (inferred), `destination` is the target group ID
+(default active group), and `edge` is `left`, `right`, `top` or `bottom` (default right). It returns `{group}` for the new group.
+An emptied source group collapses when moving to another group. Tiling the only tab against its own pane leaves the original
+pane empty, so the requested split still exists. Center drops use `group.moveTab` or `terminal.moveToEditor`.
+This is within one window; cross-window dragging and OS window tiling are outside this change. Explorer-file drops retain
+their existing open-in-group behavior. `tests/tab-tiling.cjs` covers native drops, mouse dragging, commands, dirty buffers and PTY identity.

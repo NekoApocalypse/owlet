@@ -94,6 +94,30 @@ const editorCache = new Map<
   { json: any; scroll: number; bytes: number }
 >();
 let lastFocused: EditorView | undefined;
+const liveEditors = new Map<string, EditorView>();
+export function revealSearchMatch(
+  key: string,
+  lineNumber: number,
+  column: number,
+  text: string,
+) {
+  const editor = liveEditors.get(key);
+  if (!editor) return "pending";
+  if (lineNumber > editor.state.doc.lines) return "stale";
+  const line = editor.state.doc.line(lineNumber),
+    from = line.from + column - 1;
+  if (
+    from > line.to ||
+    editor.state.sliceDoc(from, from + text.length) !== text
+  )
+    return "stale";
+  editor.dispatch({
+    selection: { anchor: from, head: from + text.length },
+    effects: EditorView.scrollIntoView(from, { y: "center" }),
+  });
+  editor.focus();
+  return "ready";
+}
 export function sourceView(element: HTMLElement | null) {
   return element ? EditorView.findFromDOM(element) : null;
 }
@@ -391,6 +415,7 @@ export default function Editor({
     editor = new EditorView({ parent: host.current!, state });
     if (cached?.json.doc === value) editor.scrollDOM.scrollTop = cached.scroll;
     view.current = editor;
+    liveEditors.set(cacheKey, editor);
     lastFocused = editor;
     const cm = getCM(editor);
     if (cm)
@@ -401,6 +426,7 @@ export default function Editor({
         close: () => callbacks.current.onClose(),
       });
     return () => {
+      if (liveEditors.get(cacheKey) === editor) liveEditors.delete(cacheKey);
       const json = editor.state.toJSON({ history: historyField });
       const bytes = JSON.stringify(json).length * 2;
       editorCache.delete(cacheKey);

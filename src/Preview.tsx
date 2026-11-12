@@ -146,7 +146,7 @@ md.renderer.rules.image = (tokens, index) => {
   const token = tokens[index];
   const source = String(token.attrGet("src") || "");
   const alt = token.content || "Image";
-  return `<span class="remote-image" data-source="${md.utils.escapeHtml(source)}"><img alt="${md.utils.escapeHtml(alt)}" /><span class="image-caption">${md.utils.escapeHtml(alt)}</span></span>`;
+  return `<span class="remote-image" data-source="${md.utils.escapeHtml(source)}" aria-busy="true"><span class="image-load-state" role="status"><span class="image-loading-spinner file-loading-spinner" aria-hidden="true"></span><span class="image-load-label">Loading image…</span></span><img alt="${md.utils.escapeHtml(alt)}" /><span class="image-caption">${md.utils.escapeHtml(alt)}</span></span>`;
 };
 md.renderer.rules.heading_open = (tokens, index, options, env, self) => {
   const title = tokens[index + 1]?.content || "";
@@ -213,10 +213,46 @@ export default function Preview({
   useEffect(() => {
     let cancelled = false;
     const element = container.current!;
-    for (const image of element.querySelectorAll<HTMLElement>(
-      ".remote-image",
-    )) {
+    const images = [...element.querySelectorAll<HTMLElement>(".remote-image")];
+    for (const [index, image] of images.entries()) {
       const source = image.dataset.source || "";
+      const img = image.querySelector("img")!;
+      image.dataset.imageIndex = String(index);
+      image.dataset.imageReady = "false";
+      image.classList.remove("image-error");
+      image.setAttribute("aria-busy", "true");
+      const loadState = image.querySelector<HTMLElement>(".image-load-state")!;
+      const loadLabel = image.querySelector<HTMLElement>(".image-load-label")!;
+      loadState.hidden = false;
+      loadLabel.textContent = "Loading image…";
+      image.querySelector(".image-expand")?.remove();
+      image.querySelector(".image-caption")!.textContent = img.alt;
+      const expand = document.createElement("button");
+      expand.className = "image-expand";
+      expand.textContent = "Expand";
+      expand.title = "Expand image · zoom and pan";
+      expand.setAttribute("aria-label", `Expand image ${index + 1}`);
+      expand.disabled = true;
+      image.appendChild(expand);
+      img.onload = () => {
+        if (cancelled) return;
+        image.dataset.imageReady = "true";
+        image.setAttribute("aria-busy", "false");
+        loadState.hidden = true;
+        expand.disabled = false;
+      };
+      const failed = (reason: string) => {
+        if (cancelled) return;
+        image.dataset.imageReady = "false";
+        image.setAttribute("aria-busy", "false");
+        loadState.hidden = true;
+        expand.disabled = true;
+        img.removeAttribute("src");
+        image.classList.add("image-error");
+        image.querySelector(".image-caption")!.textContent =
+          `${source}: ${reason}`;
+      };
+      img.onerror = () => failed("Image could not be decoded");
       window.lwr
         .remote<{ url: string; path: string }>("image", {
           source,
@@ -225,15 +261,12 @@ export default function Preview({
         })
         .then((result) => {
           if (cancelled) return;
+          loadLabel.textContent = "Rendering image…";
           image.querySelector("img")!.src = result.url;
           image.title = result.path;
         })
         .catch((error) => {
-          if (!cancelled) {
-            image.classList.add("image-error");
-            image.querySelector(".image-caption")!.textContent =
-              `${source}: ${String(error).replace(/^Error: /, "")}`;
-          }
+          failed(String(error).replace(/^Error: /, ""));
         });
     }
     const diagrams = [
@@ -345,6 +378,19 @@ export default function Preview({
           ref={container}
           dangerouslySetInnerHTML={{ __html: html }}
           onClick={(event) => {
+            const target = event.target as HTMLElement;
+            const image = target.closest<HTMLElement>(".remote-image");
+            if (
+              image?.dataset.imageReady === "true" &&
+              (target.closest(".image-expand") ||
+                (target.tagName === "IMG" && !target.closest("a")))
+            ) {
+              event.preventDefault();
+              onCommand("preview.image.open", {
+                index: Number(image.dataset.imageIndex),
+              });
+              return;
+            }
             const expand = (event.target as HTMLElement).closest(
               ".diagram-expand",
             );

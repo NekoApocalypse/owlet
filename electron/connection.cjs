@@ -46,7 +46,11 @@ class Connection extends EventEmitter {
     this.emit("state", this.state);
     this.connecting = new Promise((resolve, reject) => {
       const script = deflateSync(
-        readFileSync(path.join(__dirname, "../remote/bridge.py")),
+        Buffer.concat([
+          readFileSync(path.join(__dirname, "../remote/search.py")),
+          Buffer.from("\n"),
+          readFileSync(path.join(__dirname, "../remote/bridge.py")),
+        ]),
       ).toString("base64");
       const command = `python3 -u -c "import base64,zlib;exec(compile(zlib.decompress(base64.b64decode('${script}')),'<lwr>','exec'))"`;
       this.metrics.bootstrap = Buffer.byteLength(command);

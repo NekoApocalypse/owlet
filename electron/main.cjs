@@ -42,10 +42,23 @@ const { RecentWorkspaces } = require("./recent.cjs");
 const recent = new RecentWorkspaces(
   path.join(preferencesPath, "recent-workspaces.json"),
 );
+const { CommandHistory } = require("./command-history.cjs");
+const commandHistory = new CommandHistory(
+  path.join(preferencesPath, "command-history.json"),
+);
+const { validateWindowState } = require("./window-state.cjs");
 const sessions = new Map();
 const windows = new Map();
 const terminals = new Map();
 const imageCache = new Map();
+const { ProjectSearch, validateSearch } = require("./project-search.cjs");
+const localSearch = new ProjectSearch();
+function disposeSearch(owner) {
+  const record = windows.get(owner);
+  localSearch.dispose(owner);
+  if (record?.session.kind === "ssh")
+    record.session.notify("search-dispose", { owner: String(owner) });
+}
 if (process.env.LWR_TEST_METRICS === "1")
   globalThis.__lwrMetrics = () => ({
     ...[...sessions.values()].find((session) => session.kind === "ssh")
@@ -96,6 +109,18 @@ function sessionFor(target) {
 }
 function backend(event) {
   return windows.get(event.sender.id).session;
+}
+const uploads = new Map();
+function uploadQueue(event) {
+  let queue = uploads.get(event.sender.id);
+  if (!queue) {
+    queue = new (require("./uploads.cjs").UploadQueue)((items) => {
+      if (!event.sender.isDestroyed())
+        event.sender.send("uploads-changed", items);
+    });
+    uploads.set(event.sender.id, queue);
+  }
+  return queue;
 }
 
 function sendAll(channel, payload) {
@@ -176,6 +201,9 @@ function openWindow(root, file, session = sessionFor(), source) {
   });
   const owner = win.webContents.id;
   win.on("closed", () => {
+    disposeSearch(owner);
+    uploads.get(owner)?.stop();
+    uploads.delete(owner);
     windows.delete(owner);
     for (const [terminal, webContents] of terminals)
       if (webContents.id === owner) {
@@ -224,8 +252,21 @@ ipcMain.handle("about", (event) => {
 });
 ipcMain.handle("bootstrap", (event) => {
   trusted(event);
-  const { root, file, session } = windows.get(event.sender.id);
-  return { root, file, connection: session.state };
+  const { root, file, session, reloadState } = windows.get(event.sender.id);
+  return { root, file, reloadState, connection: session.state };
+});
+ipcMain.handle("command-history", (event, action, id) => {
+  trusted(event);
+  if (action === "list") return commandHistory.list();
+  const history =
+    action === "remember"
+      ? commandHistory.remember(id)
+      : action === "clear"
+        ? commandHistory.clear()
+        : null;
+  if (!history) throw new Error("Invalid history action");
+  sendAll("command-history-changed", history);
+  return history;
 });
 ipcMain.handle("connect", async (event) => {
   trusted(event);
@@ -298,6 +339,47 @@ ipcMain.handle("remote", async (event, method, args) => {
   }
   return result;
 });
+ipcMain.handle("project-search", async (event, action, args = {}) => {
+  trusted(event);
+  const owner = event.sender.id,
+    record = windows.get(owner),
+    connection = record.session;
+  if (!["start", "poll", "stop"].includes(action))
+    throw Error("Unknown search action.");
+  if (action === "start") {
+    const options = validateSearch(args);
+    record.searchId = options.id;
+    const root = record.root || connection.state.home;
+    if (!root) throw Error("Open a workspace first.");
+    return connection.kind === "ssh"
+      ? connection.request("search-start", {
+          ...options,
+          root,
+          owner: String(owner),
+        })
+      : localSearch.start(owner, root, options);
+  }
+  if (typeof args.id !== "string" || record.searchId !== args.id) {
+    if (action === "stop") return false;
+    throw Error("Search no longer exists.");
+  }
+  return connection.kind === "ssh"
+    ? connection.request(`search-${action}`, {
+        owner: String(owner),
+        id: args.id,
+      })
+    : action === "poll"
+      ? localSearch.poll(owner, args.id)
+      : localSearch.stop(owner, args.id);
+});
+ipcMain.handle("uploads-list", (event) => {
+  trusted(event);
+  return uploadQueue(event).snapshot();
+});
+ipcMain.handle("upload-stop", (event, id) => {
+  trusted(event);
+  return uploadQueue(event).cancel(id);
+});
 ipcMain.handle("files-import", async (event, args) => {
   trusted(event);
   const connection = backend(event);
@@ -316,7 +398,7 @@ ipcMain.handle("files-import", async (event, args) => {
     if (result.canceled) return null;
     paths = result.filePaths;
   }
-  return require("./transfers.cjs").importFiles(
+  return uploadQueue(event).add(
     connection,
     windows.get(event.sender.id).root || connection.state.home,
     args.directory,
@@ -566,10 +648,12 @@ ipcMain.handle("fullscreen", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   win.setFullScreen(!win.isFullScreen());
 });
-ipcMain.handle("reload", async (event) => {
+ipcMain.handle("reload", async (event, state) => {
   trusted(event);
   const win = BrowserWindow.fromWebContents(event.sender);
   const record = windows.get(event.sender.id);
+  const reloadState =
+    state === undefined ? undefined : validateWindowState(state);
   if (record.dirty) {
     const { response } = await dialog.showMessageBox(win, {
       type: "warning",
@@ -588,6 +672,9 @@ ipcMain.handle("reload", async (event) => {
       terminals.delete(terminal);
     }
   record.dirty = false;
+  record.reloadState = reloadState;
+  disposeSearch(event.sender.id);
+  imageCache.clear();
   event.sender.reload();
   return true;
 });

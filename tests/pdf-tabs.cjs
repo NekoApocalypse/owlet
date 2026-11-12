@@ -119,6 +119,7 @@ async function until(page, fn, arg) {
     "Split Right",
     "Split Left",
     "Show in Explorer",
+    "Close Others",
     "Close All Saved Tabs",
   ]);
   await menu

@@ -6,9 +6,19 @@ function subscribe(channel, callback) {
 }
 contextBridge.exposeInMainWorld("lwr", {
   about: () => ipcRenderer.invoke("about"),
+  commandHistory: () => ipcRenderer.invoke("command-history", "list"),
+  rememberCommand: (id) =>
+    ipcRenderer.invoke("command-history", "remember", id),
+  clearCommandHistory: () => ipcRenderer.invoke("command-history", "clear"),
+  onCommandHistory: (callback) =>
+    subscribe("command-history-changed", callback),
   droppedPaths: (files) =>
     files.map((file) => webUtils.getPathForFile(file)).filter(Boolean),
   importFiles: (args) => ipcRenderer.invoke("files-import", args),
+  projectSearch: (action, args) => ipcRenderer.invoke("project-search", action, args),
+  uploads: () => ipcRenderer.invoke("uploads-list"),
+  stopUpload: (id) => ipcRenderer.invoke("upload-stop", id),
+  onUploads: (callback) => subscribe("uploads-changed", callback),
   downloadFile: (args) => ipcRenderer.invoke("file-download", args),
   readSettings: () => ipcRenderer.invoke("settings-read"),
   saveSettings: (args) => ipcRenderer.invoke("settings-save", args),
@@ -34,7 +44,7 @@ contextBridge.exposeInMainWorld("lwr", {
   onTerminal: (callback) => subscribe("terminal-event", callback),
   dirty: (value) => ipcRenderer.send("dirty", value),
   external: (url) => ipcRenderer.invoke("external", url),
-  reload: () => ipcRenderer.invoke("reload"),
+  reload: (state) => ipcRenderer.invoke("reload", state),
   closeWindow: () => ipcRenderer.invoke("close-window"),
   zoom: (direction) => ipcRenderer.invoke("zoom", direction),
   fullscreen: () => ipcRenderer.invoke("fullscreen"),
